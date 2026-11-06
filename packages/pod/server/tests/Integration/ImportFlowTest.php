@@ -118,9 +118,12 @@ final class ImportFlowTest extends IntegrationTestCase
             $this->asCompany()->postJson("int/v1/pod/imports/{$import}/commit", ['skip_undecided' => true])->assertOk();
         }
 
-        // Round 2: Aminata and Mohamed already exist; Fatmata wasn't imported in round 1
-        // (undecided, skipped) so she's still a likely duplicate of Aminata's phone.
-        $this->assertSame(2, $summary['exists']);
+        // Round 2: Aminata, her repeated row and Mohamed are all already registered.
+        // Fatmata wasn't imported in round 1 (undecided, skipped), so she's still a
+        // likely duplicate of Aminata's phone.
+        $this->assertSame(3, $summary['exists']);
+        $this->assertSame(1, $summary['review']);
+        $this->assertSame(0, $summary['accepted']);
         $this->assertSame(2, Beneficiary::count());
     }
 

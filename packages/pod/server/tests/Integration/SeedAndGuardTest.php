@@ -121,12 +121,13 @@ final class SeedAndGuardTest extends IntegrationTestCase
     public function testLogModeAllowsButLogs(): void
     {
         config(['pod.guard.mode' => 'log']);
-        Log::spy();
+        $logger = \Mockery::spy(\Psr\Log\LoggerInterface::class);
+        Log::shouldReceive('driver')->andReturn($logger);
         $order = $this->order();
 
         $this->complete($order)->assertOk();
 
-        Log::shouldHaveReceived('warning')->once()->withArgs(fn ($message, $context) => str_contains($message, 'without required proof') && $context['decision'] === 'warn' && $context['order'] === $order['public_id']);
+        $logger->shouldHaveReceived('warning')->once()->withArgs(fn ($message, $context) => str_contains($message, 'without required proof') && $context['decision'] === 'warn' && $context['order'] === $order['public_id']);
     }
 
     public function testOffModeDoesNothing(): void

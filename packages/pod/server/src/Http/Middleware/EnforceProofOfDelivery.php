@@ -41,9 +41,16 @@ class EnforceProofOfDelivery
         }
 
         try {
-            $activity = $request->array('activity');
-            $activity = Utils::isActivity($activity) ? $activity : new Activity($activity, $order->getConfigFlow());
-        } catch (\Throwable) {
+            $input    = $request->input('activity', []);
+            $activity = new Activity(is_array($input) ? $input : [], $order->getConfigFlow());
+        } catch (\Throwable $e) {
+            // Never block a delivery because of a fault in the guard itself, but
+            // make it visible: a silent failure would quietly switch the guard off.
+            $this->logger()->error('[pod] Proof guard could not read the activity; the update was allowed', [
+                'order' => $order->public_id,
+                'error' => $e->getMessage(),
+            ]);
+
             return $next($request);
         }
 
@@ -71,8 +78,7 @@ class EnforceProofOfDelivery
             'pod_method' => $order->pod_method,
             'proof_sent' => $request->filled('proof'),
         ];
-        $logger = config('pod.guard.log_channel') ? Log::channel(config('pod.guard.log_channel')) : Log::getFacadeRoot();
-        $logger->warning('[pod] Order activity update without required proof of delivery', $context);
+        $this->logger()->warning('[pod] Order activity update without required proof of delivery', $context);
 
         if ($decision === ProofGuard::WARN) {
             return $next($request);
@@ -83,6 +89,13 @@ class EnforceProofOfDelivery
             'error'   => 'proof_required',
             'missing' => [['type' => $order->pod_method ?: 'any', 'subject' => $order->public_id]],
         ], 422);
+    }
+
+    private function logger(): \Psr\Log\LoggerInterface
+    {
+        $channel = config('pod.guard.log_channel');
+
+        return $channel ? Log::channel($channel) : Log::driver();
     }
 
     private function order(string $id): ?Order
