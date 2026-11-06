@@ -136,7 +136,9 @@ All tables use the core conventions: `uuid`, `public_id`, `company_uuid`, timest
 | requirements | json | the rule tree below |
 | geofence_radius_m | int, default 150 | the capture must be within this distance of the stop |
 | time_window_grace_min | int, nullable | the capture must fall in the stop window ± grace |
-| allow_offline | bool | |
+| offline_mode | enum | `allowed` (default), `allowed_with_fallback`, `online_only` (§6.6.8) |
+| offline_fallback | json, nullable | requirement tree used when key checks ran offline |
+| max_offline_hours / max_media_delay_hours | int | default 72 / 72 |
 | allow_safe_place | bool | |
 | max_attempts | int, default 3 | |
 | retention_days | int, nullable | overrides the company default |
@@ -171,6 +173,10 @@ One row each time a driver tries to complete a stop.
 | location_accuracy_m | float | |
 | distance_from_stop_m | float | computed |
 | device_id, app_version, offline | | |
+| trusted_captured_at, clock_skew_s | timestamp, int | from the phone's last-sync time plus uptime (§6.6.6) |
+| sync_state | enum | `meta_synced`, `meta_synced_sms`, `media_synced` |
+| expected_media | json | photo hashes committed in the metadata phase (§6.6.3) |
+| device_signature, chain_prev_hash | text, char(64) | phone-side integrity (§6.6.6) |
 | status | enum | `draft`, `submitted`, `sealed`, `flagged`, `voided` |
 | validation | json | the result of each check (pass, warn, fail) |
 | seal_hash, sealed_at | char(64), timestamp | §7 |
@@ -212,7 +218,8 @@ The highest priority wins. Requirements from the legacy `pod_method` are merged 
 1. The driver arrives at the stop. The app shows the requirements checklist from `pod_policy`.
 2. `POST /v1/pod/attempts` creates a `draft` attempt. The app sends `client_attempt_id` as an idempotency key.
 3. For each requirement, the app captures evidence with `POST /v1/pod/attempts/{id}/evidence` (multipart for images, JSON for scans and OTP). Each item creates a `Proof` (using the existing storage paths `uploads/{company}/…`) and a `pod_evidence` row. The server checks it immediately (§6.4) and returns pass, warn or fail.
-4. `POST /v1/pod/attempts/{id}/submit` with the outcome `delivered`. The server re-checks the whole requirement tree, seals the attempt (§7), and then calls Fleet-Ops `updateActivity` / `complete()` with the primary proof. The guard sees a sealed, passing attempt and lets it through.
+4. `POST /v1/pod/attempts/{id}/submit` with the outcome `delivered`. The server re-checks the whole requirement tree, then calls Fleet-Ops `updateActivity` / `complete()` with the primary proof. The guard accepts a passing attempt whose metadata has synced (`meta_synced`), even if its photos are still uploading. The attempt is sealed (§7) once all committed media have arrived (§6.6.3).
+   - Steps 2–4 above describe a phone that is online. With no signal, the same calls are queued on the phone and sent later as one batch through `/pod/sync` (§6.6).
 5. Listeners queue the ePOD PDF render and fire `pod.attempt.sealed` and the existing `order.completed` / `waypoint.completed`.
 
 The legacy `capture-*` endpoints keep working. A legacy capture creates an implicit attempt, so older Navigator builds don't break.
@@ -240,9 +247,85 @@ Attempts that pass with warnings are sealed as `flagged` and appear in the conso
 - The recipient reads it to the driver. The app submits `{type: "otp", code}`. The server checks it against `code_hash`.
 - The code can be resent, with a rate limit, through `POST /v1/pod/otp/{subject}/resend`.
 
-### 6.6 Offline
-- Policy and requirements come with the order payload. The app stores evidence and attempts locally, together with `captured_at`, the location and the device id.
-- When the app syncs, it sends `client_attempt_id`, so retries are idempotent. The server marks `offline=true`, runs the checks using device time and location, and applies a stricter skew rule (for example a `warn` if the delay is over 24 h).
+### 6.6 Poor or no connectivity
+
+Many drivers work on weak 2G/3G, in rural areas, basements, warehouses and dead zones. The design rule is: **the network is never on the critical path for finishing a stop.** The driver can always capture proof and move on. The server catches up when it can and checks everything again.
+
+#### 6.6.1 Offline-first capture
+- The app saves every capture to a durable local store (SQLite, plus files in app storage) **before** it tries any upload. This happens whether or not the phone is online, so there's one code path, not an "online mode" and an "offline mode".
+- Each attempt goes through these local states: `captured → queued → meta_synced → media_synced → sealed`. A local record is only removed after the server confirms it is `sealed`.
+- The queue survives the app being killed, the phone rebooting and low battery. The driver can't clear it. If the store goes over a cap (default 500 MB), the app warns the driver. It never drops evidence silently.
+- The UI never waits on the network. It shows a connectivity indicator and an "N stops waiting to sync" counter. At end of shift, the app checks for unsynced stops and tells the driver to sync at the depot.
+
+#### 6.6.2 Download everything at route start
+When the driver starts a route (ideally on depot Wi-Fi), the app downloads a **route bundle**:
+- the resolved `pod_policy` for every stop (§6.1);
+- the stop coordinates, geofence radius and time windows, so location and time checks run on the phone;
+- the expected parcel/entity codes per stop, so item scans are matched on the phone;
+- an **offline OTP bundle** per stop (§6.6.4);
+- the reason codes, recipient form fields and the failed-delivery flow.
+
+Changes made while the driver is offline (a new stop, a changed address) arrive when the phone next connects. Until then the app works from the downloaded copy, and conflicts are handled in §6.6.7.
+
+#### 6.6.3 Two-phase sync: small data first, photos later
+A delivery shouldn't wait for photos to upload over a weak signal. Sync is split in two:
+
+1. **Metadata phase** (about 2–5 KB per stop). This sends the attempt, the outcome, the recipient, the location and time, the reason codes, the scan values, the OTP result, the **signature as vector strokes** (a few KB, drawn as PNG on the server), and the **SHA-256 hash of every photo** that is still to come.
+   - The server checks it and moves the order or stop forward at once, with status `delivered — evidence pending`.
+   - Dispatch, the customer tracking page and the "Delivered" notification update straight away.
+   - The server commits to the photo hashes now, so photos sent later can't be swapped.
+2. **Media phase.** Photos upload in the background whenever there is signal. The server checks each file against the hash it already has. When everything has arrived, the attempt is sealed (§7) and the ePOD is generated.
+   - If photos are still missing after `max_media_delay_hours` (default 72 h), the attempt is flagged for review. It isn't silently accepted.
+
+#### 6.6.4 Delivery codes (OTP) with no signal
+The server-side OTP check in §6.5 can't run offline. So:
+- At route start, the bundle holds `HMAC-SHA256(stop_key, code)` and the `stop_key` for each stop that needs an OTP. The app checks the code the recipient reads out against that value on the phone. It allows 5 tries, then locks.
+- When the attempt syncs, the app sends the code that was typed in, and the server checks it again against `pod_otps.code_hash`. If they don't match, the attempt is flagged.
+- **Trade-off.** A determined driver could brute-force a 4–6 digit code from the bundle. So an offline OTP check counts as **lower assurance**:
+  - evidence is marked `verified_offline`;
+  - a policy can require extra proof when the OTP was checked offline, using `offline_fallback` (for example signature + photo, below).
+- The customer receives the OTP by SMS, so it reaches them even when their own data connection is poor.
+
+#### 6.6.5 Keeping photos and signatures small
+- **Photos.** Compress on the phone: longest edge 1600 px, JPEG quality around 70, so roughly 200–400 KB. Remove EXIF data. Keep the original only if `keep_originals` is on, and upload originals over Wi-Fi only.
+- **Signatures.** Send them as vector strokes, not images: about 2–8 KB instead of 50–150 KB.
+- **Resumable uploads.** Split files into chunks (`POST /v1/pod/uploads` → `PATCH …/{upload_id}` with `Upload-Offset`, tus-style, 256 KB chunks). A dropped connection resumes from the last good chunk instead of starting over.
+- **Retries.** Use exponential backoff with jitter (2 s → 5 min cap). Send small metadata before large photos, and send older stops before newer ones.
+- **Bandwidth goal.** Under 10 KB per stop before the order can complete, and about 400 KB per photo, sent whenever possible.
+
+#### 6.6.6 Trust while records are on the phone
+Evidence can sit on the phone for hours, so the phone protects it:
+- **Device key.** When the app is linked, it creates a key pair in Android Keystore or the iOS Secure Enclave and registers the public key on the driver's device record. The phone signs each evidence record when it is captured, so records can't be edited before sync without detection.
+- **Hash chain.** Each local record includes the hash of the previous one. If a record is deleted or reordered on the phone, the server sees a gap in the chain and flags it.
+- **Trusted time.** The phone's clock can't be trusted, because drivers can change it. At every successful sync the app saves the server time together with the phone's monotonic uptime counter. It then records `trusted_time = last_server_time + elapsed_since_sync`, plus the GPS fix time when available. If these disagree with the phone's clock by more than 5 minutes, the attempt is flagged.
+- **Location without data.** GPS still works without mobile data, but it can be slow to get a first fix. The app records the fix age, accuracy and number of satellites. If there's no fix, it uses the last known location along with its age. It never blocks the delivery for lack of a location; it flags it (§6.4).
+
+#### 6.6.7 Conflicts when sync happens late
+The server has the final say. A late attempt is decided by its trusted capture time:
+
+| Situation found at sync | Rule |
+|---|---|
+| Order cancelled **after** the capture time | Accept the attempt and flag it. Dispatch decides (for example, refund or recover). |
+| Order cancelled **before** the capture time | Record the attempt as `voided` (reason `order_cancelled`). Notify the driver and dispatch. |
+| Stop reassigned to another driver | Accept the attempt from the original driver and flag it. Accept only the first delivered attempt for the stop. |
+| Address changed while offline | Run the geofence check against both the old and new address. Flag the attempt. |
+| Same `client_attempt_id` sent again | No-op. Return the stored result (idempotent). |
+| Synced after `max_offline_hours` (default 72 h) | Accept the attempt and flag it as `late_sync`. |
+
+The driver's phone shows a "sync issues" list for any attempt the server flagged or voided.
+
+#### 6.6.8 Policy settings for offline
+New fields on `pod_policies` (§5):
+- `offline_mode`: `allowed` (default), `allowed_with_fallback`, or `online_only` (only for high-value or controlled goods, where the driver must find signal);
+- `offline_fallback`: the requirement tree that applies instead when key checks ran offline;
+- `max_offline_hours`;
+- `max_media_delay_hours`.
+
+#### 6.6.9 Optional: SMS fallback for very poor areas
+Where data is unusable but SMS works, the app can send a **compact signed metadata message** to a Twilio inbound number (Twilio is already supported by the installer). The message holds the attempt id, outcome, time, location and a truncated signature over the record. The server records this as `meta_synced_sms`, which updates order status and customer tracking. The full metadata and photos follow when data returns. This is off by default because it adds SMS costs.
+
+#### 6.6.10 Live tracking while offline
+The app batches location points locally and backfills them when it reconnects, so the route history has no gaps. The console shows **"last synced N min ago"** for each driver, so dispatchers can tell a stopped driver from one who is out of signal.
 
 ## 7. Integrity and immutability
 - When an attempt is sealed, the server builds a canonical JSON object: the attempt fields, plus a sorted list of `{type, content_hash, captured_at, location}`, plus the order and stop ids. It stores `seal_hash = SHA-256(canonical)` and an HMAC with a per-company key (`pod.seal_key`, kept in the secrets store).
@@ -273,6 +356,10 @@ Public (`/v1`, API key or driver token):
 | GET | `/pod/attempts?order=…&status=…` | List |
 | GET | `/pod/attempts/{id}` / `/epod` / `/verify` | Read, PDF, integrity check |
 | POST | `/pod/otp/{subject}/send` / `resend` | OTP |
+| GET | `/pod/route-bundle?driver={id}` | The offline bundle downloaded at route start (§6.6.2) |
+| POST | `/pod/sync` | A batch of metadata-phase attempts. Idempotent by `client_attempt_id`. Returns a result per attempt. |
+| POST / PATCH / HEAD | `/pod/uploads`, `/pod/uploads/{id}` | Resumable chunked media upload (§6.6.5) |
+| POST | `/pod/sms-inbound` | Twilio webhook for the SMS fallback (§6.6.9). Twilio-signed. |
 
 Internal (`/int/v1`, console): CRUD for `pod-policies`, the review queue (`pod-attempts?status=flagged`), and approve, void and redact actions.
 
@@ -326,6 +413,14 @@ Socket channel `order.{public_id}`: we push `pod.attempt.sealed` so the console 
 - **Feature**: legacy capture still completes orders; an order is rejected with 422 and the `missing` list without proof; bypass needs the permission; a sealed attempt can't be changed; offline idempotent resubmit; multi-stop with per-item coverage.
 - **k6**: add evidence upload and submit to `tests/k6/api-release.js`, to watch latency.
 - **Navigator e2e**: the happy path, a failed attempt, and an offline sync.
+- **Poor-network tests** (with network throttling, for example Android emulator network profiles or `tc netem`):
+  - 2G profile (about 50 kbps, 500 ms RTT, 10–30% packet loss);
+  - airplane mode for a whole route, then sync at the depot;
+  - the app killed mid-upload, then resumed;
+  - the phone clock moved ±2 h;
+  - an order cancelled while the driver is offline;
+  - the same batch submitted twice.
+- **Pass condition**: the driver can finish every stop with no network. The order completes on the server within one metadata sync. No evidence is lost or duplicated.
 
 ## 16. Delivery plan
 
@@ -335,7 +430,8 @@ Socket channel `order.{public_id}`: we push `pod.attempt.sealed` so the console 
 | 1 | Extension skeleton, tables, PolicyResolver, attempts and evidence API, sealing, `log` mode | 2 weeks |
 | 2 | Checks (geo, time, scan coverage), OTP, failed attempts with reasons, console order panel | 2 weeks |
 | 3 | ePOD PDF, verification page, webhooks, review queue, reports | 1.5 weeks |
-| 4 | Navigator checklist UI, offline queue, `enforce` rollout | 2–3 weeks |
+| 4 | Navigator checklist UI, offline-first store, route bundle, two-phase and resumable sync, device signing, `enforce` rollout | 3–4 weeks |
+| 4b | (Optional) SMS metadata fallback | 1 week |
 | 5 | Retention and redaction, Ledger hold-until-PoD, backfill | 1 week |
 
 ## 17. Open questions
@@ -343,4 +439,6 @@ Socket channel `order.{public_id}`: we push `pod.attempt.sealed` so the console 
 2. When the geofence check fails, should the attempt **block** or only **flag**? Is the default 150 m right for your areas, given GPS accuracy in dense urban or rural places?
 3. What are your legal retention requirements for signatures and photos (for example, 90 days, 1 year, 7 years)?
 4. Is the "Delivered" ePOD sent to the customer by default, or only on request?
-5. Do we contribute the extension upstream, or keep it private to this fork? Both work under AGPL-3.0, but network use requires publishing the source to your users.
+5. What connectivity do your drivers actually have? Typical network (2G, 3G or 4G), how long they are offline (minutes or whole routes), and whether they have depot Wi-Fi. This decides whether the SMS fallback (§6.6.9) is worth building, and the defaults for `max_offline_hours`.
+6. Can any goods require `online_only` proof (for example cash-on-delivery, controlled medicines)?
+7. Do we contribute the extension upstream, or keep it private to this fork? Both work under AGPL-3.0, but network use requires publishing the source to your users.
