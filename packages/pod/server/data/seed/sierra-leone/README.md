@@ -62,6 +62,12 @@ Villages aren't in the official dataset. They're created from beneficiary lists 
 3. **Boundary date.** The boundaries were created in 2017. Check whether any chiefdoms or sections have changed since then, against the current list from Statistics Sierra Leone or the Ministry of Local Government. Add or rename them in the console. **Never reuse a p-code** for a different area.
 4. **Western Area.** Level 3 under Western Area Rural and Western Area Urban is a rural or urban area (e.g. "Koya Rural", "East I"), not a chiefdom, so its label is **Area**.
 
-## How changes are made
-- A correction is made in the console (Settings → Country profiles → Sierra Leone → Admin areas). It keeps the p-code and logs the old name, the user and the reason in the audit log.
-- Corrections can also be exported back to a CSV in this format, and shared with Statistics Sierra Leone or OCHA, so the official list can be fixed at the source.
+## Loading and changing the list
+
+- Load or refresh it with `php artisan pod:seed-admin-areas SL`.
+  - Areas are matched by p-code: new ones are added and changed ones updated.
+  - Areas that are in the database but not in the file are **kept** and reported, because beneficiaries may point at them.
+  - Add `--dry-run` to see the changes first, or `--file=path.csv` to load a corrected copy in this format.
+- To correct a name: edit `name` in a copy of this file (keep the p-code), and load it with `--file`. Keep the original in `source_name` if it isn't already there. A console screen for corrections, with an audit log, is planned with the console UI.
+- **Never reuse a p-code** for a different area.
+- Corrections in this format can be shared with Statistics Sierra Leone or OCHA, so the official list can be fixed at the source.

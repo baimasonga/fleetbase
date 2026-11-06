@@ -1,0 +1,45 @@
+{
+    "name": "fleetbase/pod-api",
+    "version": "0.1.0",
+    "description": "Proof of Delivery extension for Fleetbase, with an agricultural inputs distribution profile",
+    "keywords": ["fleetbase-extension", "proof-of-delivery", "pod", "agriculture", "distribution"],
+    "license": "AGPL-3.0-or-later",
+    "require": {
+        "php": "^8.1",
+        "fleetbase/core-api": "^1.6.74",
+        "fleetbase/fleetops-api": "^0.6.75",
+        "giggsey/libphonenumber-for-php": "^8.13",
+        "phpoffice/phpspreadsheet": "^1.28"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Fleetbase\\Pod\\": "server/src/",
+            "Fleetbase\\Pod\\Seeders\\": "server/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Fleetbase\\Pod\\Tests\\": "server/tests/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Fleetbase\\Pod\\Providers\\PodServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "vendor-dir": "./server_vendor",
+        "sort-packages": true,
+        "preferred-install": "dist"
+    },
+    "scripts": {
+        "test": "phpunit --colors=always"
+    }
+}

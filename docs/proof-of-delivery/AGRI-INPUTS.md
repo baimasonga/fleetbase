@@ -368,12 +368,12 @@ Country-specific settings live in a **country profile**. A new programme takes *
 
 The lists and labels above are **starting values**. Admin area names are loaded from an official list per country (CSV import).
 
-**Sierra Leone seed list (decided):** [`seed-data/sierra-leone/admin-areas.csv`](seed-data/sierra-leone/admin-areas.csv) holds 5 regions, 16 districts, 167 chiefdoms and 1,316 sections. It comes from the Government of Sierra Leone's administrative boundaries dataset (COD-AB v02), published by OCHA on HDX under CC BY-IGO. It's keyed by official p-code.
+**Sierra Leone seed list (decided):** [`packages/pod/server/data/seed/sierra-leone/admin-areas.csv`](../../packages/pod/server/data/seed/sierra-leone/admin-areas.csv) holds 5 regions, 16 districts, 167 chiefdoms and 1,316 sections. It comes from the Government of Sierra Leone's administrative boundaries dataset (COD-AB v02), published by OCHA on HDX under CC BY-IGO. It's keyed by official p-code.
 - "Fabala" is corrected to Falaba.
 - 67 names that may have been cut off in the source are flagged for local confirmation during the pilot.
 - Villages are added under their section from beneficiary lists and field registration.
 
-See the [seed data README](seed-data/sierra-leone/README.md) for the source, columns and known issues.
+See the [seed data README](../../packages/pod/server/data/seed/sierra-leone/README.md) for the source, columns and known issues.
 
 Common to all profiles:
 - English;

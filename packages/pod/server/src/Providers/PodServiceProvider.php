@@ -1,0 +1,61 @@
+<?php
+
+namespace Fleetbase\Pod\Providers;
+
+use Fleetbase\Pod\Console\Commands\SeedAdminAreas;
+use Fleetbase\Pod\Http\Middleware\EnforceProofOfDelivery;
+use Fleetbase\Pod\Services\AdminAreaRepository;
+use Fleetbase\Pod\Support\Countries\CountryProfiles;
+use Illuminate\Routing\Events\RouteMatched;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\ServiceProvider;
+
+class PodServiceProvider extends ServiceProvider
+{
+    /**
+     * The Fleet-Ops public API action the proof guard is attached to.
+     */
+    public const GUARDED_ACTION = 'Fleetbase\FleetOps\Http\Controllers\Api\v1\OrderController@updateActivity';
+
+    public function register(): void
+    {
+        $this->mergeConfigFrom(__DIR__ . '/../../config/pod.php', 'pod');
+
+        $this->app->singleton(CountryProfiles::class, fn () => new CountryProfiles(
+            config('pod.countries', []),
+            config('pod.default_country', 'SL')
+        ));
+
+        $this->app->singleton(AdminAreaRepository::class);
+    }
+
+    public function boot(): void
+    {
+        $this->loadMigrationsFrom(__DIR__ . '/../../migrations');
+        $this->loadRoutesFrom(__DIR__ . '/../routes.php');
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([SeedAdminAreas::class]);
+        }
+
+        $this->attachProofGuard();
+    }
+
+    /**
+     * Add the proof guard to the Fleet-Ops activity update route when it is
+     * matched. Doing it at match time (not by editing the route list) also
+     * works with cached routes, and leaves Fleet-Ops unchanged.
+     */
+    private function attachProofGuard(): void
+    {
+        Event::listen(RouteMatched::class, function (RouteMatched $event) {
+            $route = $event->route;
+            if ($route->getActionName() !== self::GUARDED_ACTION) {
+                return;
+            }
+            if (!in_array(EnforceProofOfDelivery::class, $route->middleware(), true)) {
+                $route->middleware(EnforceProofOfDelivery::class);
+            }
+        });
+    }
+}
