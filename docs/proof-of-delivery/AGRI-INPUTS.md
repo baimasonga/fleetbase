@@ -1,6 +1,6 @@
 # Proof of Delivery: Agricultural Inputs Profile
 
-Status: **Draft for review, v4** (English-speaking West Africa with Sierra Leone as the default, self-hosted deployment, Excel-first onboarding)
+Status: **Draft for review, v5** (own servers, pilot size, Sierra Leone seed list)
 Builds on:
 - [`DESIGN.md`](DESIGN.md), the generic PoD module;
 - [`REPORTING-AUDIT.md`](REPORTING-AUDIT.md), the reporting framework and audit rules for this profile.
@@ -22,7 +22,8 @@ This document only describes what changes for agricultural inputs. Anything not 
 | Connectivity | Mostly 3G with frequent dead zones; depot Wi-Fi available |
 | Countries | **English-speaking West Africa**: Sierra Leone, Liberia, Ghana, Nigeria, The Gambia. **Sierra Leone is the default** country profile (§16.1). |
 | Scale | Set by each **programme's beneficiary capacity**. There is no fixed limit; sizing guidance is in §16.4. |
-| Hosting | **Self-hosted**: on your own servers or on a cloud provider of your choice. **Not Fleetbase Cloud** (§16.3). |
+| Hosting | **Own servers** (option A in §16.3), self-hosted. **Not Fleetbase Cloud.** |
+| First deployment size | **Pilot tier**, up to 20,000 beneficiaries per season (§16.4) |
 | Beneficiary lists | **Mostly Excel** (soft copies, in different layouts); a few on paper. They're imported and verified (§7.1). |
 | Hired truckers | **Install the Navigator app** (Transporter role). Vehicle GPS trackers are **optional**, an extra data source. |
 | Funder reporting | **No funder-required formats.** Reports are for the programme, government partners and audit. |
@@ -365,7 +366,14 @@ Country-specific settings live in a **country profile**. A new programme takes *
 | ID types offered | **National ID (NIN), Voter ID card, Passport, Driver's licence, Other** | National ID, Voter card, Passport, Other | Ghana Card, Voter ID, Passport, Other | NIN, Voter's card (PVC), Passport, Other | National ID, Voter card, Passport, Other |
 | SMS provider | **A local aggregator connected to the Sierra Leone networks (e.g. Orange, Africell, Qcell)**, or Twilio | Local aggregator or Twilio | Local aggregator or Twilio | Local aggregator or Twilio | Local aggregator or Twilio |
 
-The lists and labels above are **starting values**. Admin area names (districts, chiefdoms and so on) are loaded from an official list per country (CSV import) and confirmed before the first programme. Sierra Leone's district and chiefdom list ships as the default seed data, to be checked against the current official list.
+The lists and labels above are **starting values**. Admin area names are loaded from an official list per country (CSV import).
+
+**Sierra Leone seed list (decided):** [`seed-data/sierra-leone/admin-areas.csv`](seed-data/sierra-leone/admin-areas.csv) holds 5 regions, 16 districts, 167 chiefdoms and 1,316 sections. It comes from the Government of Sierra Leone's administrative boundaries dataset (COD-AB v02), published by OCHA on HDX under CC BY-IGO. It's keyed by official p-code.
+- "Fabala" is corrected to Falaba.
+- 67 names that may have been cut off in the source are flagged for local confirmation during the pilot.
+- Villages are added under their section from beneficiary lists and field registration.
+
+See the [seed data README](seed-data/sierra-leone/README.md) for the source, columns and known issues.
 
 Common to all profiles:
 - English;
@@ -386,7 +394,7 @@ Common to all profiles:
 | **Security** | A programme manager can suspend distributions in an area. |
 
 ### 16.3 Hosting (self-hosted, not Fleetbase Cloud)
-The system runs entirely on infrastructure you control. Two supported options:
+The system runs entirely on infrastructure you control. **Decision: option A (own servers)**, at the pilot size. Option B stays documented for later growth.
 
 | | **A. Own servers** (office or local data centre) | **B. Cloud provider of your choice** (AWS, Azure, GCP, or a local/regional provider) |
 |---|---|---|
@@ -406,6 +414,21 @@ Both options need:
 - **monitoring:** uptime checks, disk space, queue length, and sync failure rates from the PoD module;
 - **object-lock or write-once (WORM) storage** for evidence and the daily audit-log hashes (`DESIGN.md` §7), where the storage supports it (MinIO and S3 both do).
 
+**Pilot hardware on own servers (option A, decided)**
+
+The minimum for the pilot tier is 4 vCPU and 8 GB RAM. On your own servers, hardware takes a long time to upgrade, so the recommendation adds headroom:
+
+| Item | Recommendation |
+|---|---|
+| Main server | 1 × server with 8 cores, 32 GB RAM, **2 × 1 TB SSD in RAID 1** (mirrored), Ubuntu Server LTS. Runs the whole Docker Compose stack: application, queue, scheduler, socket, MySQL, Redis, MinIO, Caddy and OSRM. |
+| Map routing (OSRM) | On the main server, with the Sierra Leone map extract (small, about 1–2 GB RAM). Add neighbouring countries later. |
+| Backup target | A second machine or NAS (network storage) with at least 2 TB, **in a different building or site**. It receives the nightly database dumps and MinIO replication. Add a monthly encrypted copy to off-site storage (a removable drive kept in a safe, or a cloud bucket if national law allows). |
+| Power | An online UPS for at least 2 hours, plus a generator or solar with battery. The server shuts down safely when the UPS is low. |
+| Internet | **Two ISPs** (e.g. fibre plus a 4G/5G router as failover), and a **static public IP** or a DNS name with dynamic DNS for the API address the phones use |
+| Network security | A firewall that only allows ports 443 (HTTPS) and the socket port in from the internet. Admin access only through a VPN. |
+| Spare | A spare SSD, and a documented rebuild procedure (restore to a fresh server from backup), tested once before go-live |
+| Estimated storage use | About 10 GB per pilot season (§16.4). 1 TB covers the 7-year retention with plenty of room. |
+
 **No dependency on Fleetbase Cloud:**
 - The PoD extension is installed from your own packages (`packages/pod`), not from the Fleetbase extension registry.
 - The deployment's `REGISTRY_HOST` and `REGISTRY_PREINSTALLED_EXTENSIONS` settings (see `docker-compose.yml`) point at the public Fleetbase registry by default. Phase 8 confirms the install works with those disabled or pointing at your own registry, so nothing depends on Fleetbase services.
@@ -417,7 +440,7 @@ Scale depends on each programme's beneficiary capacity, so size the deployment b
 
 | Tier | Beneficiaries per season (all programmes) | Hosting | Server (application + queue + socket) | Database | Storage per season* |
 |---|---|---|---|---|---|
-| Pilot | Up to 20,000 | A or B, single VM with Docker Compose | 4 vCPU, 8 GB RAM | Same VM | ~10 GB |
+| **Pilot (chosen)** | Up to 20,000 | A or B, single VM with Docker Compose. **Decided: A (own server), see hardware in §16.3.** | 4 vCPU, 8 GB RAM minimum | Same VM | ~10 GB |
 | Standard | 20,000–150,000 | A or B, Docker Compose on 2 VMs (application, database) | 8 vCPU, 16 GB RAM | 4 vCPU, 16 GB RAM, SSD | ~60 GB |
 | Large | 150,000–1,000,000 | B (or a well-equipped data centre), Kubernetes with Helm, 2+ application replicas | 3 × 8 vCPU, 16 GB RAM | Managed MySQL, 8 vCPU, 32 GB RAM, a read replica for reports | ~400 GB |
 
@@ -437,22 +460,25 @@ The peak load comes from **end-of-day syncs** when teams return to depots. Test 
 | 5 | Pesticide and veterinary rules; cold-chain readings and blocking; optional dose log | 2 weeks |
 | 6 | Audit rules engine, cases and findings, verification sampling, post-distribution monitoring (PDM) module, **third-party monitor accounts and blind samples** (`REPORTING-AUDIT.md`) | 3.5 weeks |
 | 7 | Report catalogue, dashboards, audit pack export | 2 weeks |
-| 8 | Self-hosted production setup: chosen hosting option, backups and restore test, monitoring, own OSRM server, own Navigator build and distribution, load test | 1.5 weeks (can overlap with phases 6–7) |
+| 8 | Own-server production setup: server, UPS and ISP installation; Docker Compose stack with MinIO and OSRM (Sierra Leone extract); backups to the second site and a restore test; monitoring; own Navigator build and distribution; load test at pilot tier | 1.5 weeks (can overlap with phases 6–7; hardware should be ordered early) |
 
 **Total:** about 20–24 weeks with one team (19–23 if phase 8 overlaps).
 - Onboarding (phase 2) can start in parallel with phase 1, so list cleaning and field verification are under way before the first distribution.
 - A one-district pilot can run after phase 5. Audit and reporting are finished during the pilot.
 
 ## 18. Remaining questions
-1. **Hosting choice:** own servers (option A) or a cloud provider (option B), and which one? This decides the storage and backup setup in phase 8.
-2. **Sierra Leone data protection:** confirm the current legal requirements with counsel (§16.2).
-3. **Admin area list:** do you have an official district/chiefdom/section list for Sierra Leone (Excel), or should we use the seed list and check it?
-4. **First programme's expected capacity**, to choose the sizing tier (§16.4) for the first deployment.
+1. **Sierra Leone data protection:** confirm the current legal requirements with counsel (§16.2).
+2. **Seed list review:** during the pilot, a local person confirms the 67 flagged names and checks for chiefdom or section changes since 2017 (seed data README).
+3. **Server location and ISPs:** where the server and the backup site will be, and which two internet providers, so hardware and connections can be ordered early.
+
+Resolved in v5:
+- own servers (§16.3), pilot tier (§16.4);
+- Sierra Leone seed list from the official dataset (§16.1).
 
 Resolved in v4:
 - English-speaking West Africa, with Sierra Leone as the default (§16.1);
 - scale is set by programme capacity (§16.4);
-- self-hosted, own servers or cloud, not Fleetbase Cloud (§16.3);
+- self-hosted, not Fleetbase Cloud;
 - farmer lists are mostly Excel (§7.1).
 
 Resolved in v3:
