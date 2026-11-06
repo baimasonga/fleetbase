@@ -138,7 +138,7 @@ All tables use the core conventions: `uuid`, `public_id`, `company_uuid`, timest
 | time_window_grace_min | int, nullable | the capture must fall in the stop window ± grace |
 | offline_mode | enum | `allowed` (default), `allowed_with_fallback`, `online_only` (§6.6.8) |
 | offline_fallback | json, nullable | requirement tree used when key checks ran offline |
-| max_offline_hours / max_media_delay_hours | int | default 72 / 72 |
+| max_offline_hours / max_media_delay_hours | int | default 12 / 24 |
 | allow_safe_place | bool | |
 | max_attempts | int, default 3 | |
 | retention_days | int, nullable | overrides the company default |
@@ -251,6 +251,19 @@ Attempts that pass with warnings are sealed as `flagged` and appear in the conso
 
 Many drivers work on weak 2G/3G, in rural areas, basements, warehouses and dead zones. The design rule is: **the network is never on the critical path for finishing a stop.** The driver can always capture proof and move on. The server catches up when it can and checks everything again.
 
+**Target connectivity profile (confirmed):** mostly 3G, with frequent short dead zones, and depot Wi-Fi at the start and end of each shift. This sets the defaults below:
+
+| Decision | Value | Why |
+|---|---|---|
+| Route bundle | **Must** be downloaded on depot Wi-Fi before the first stop. Small updates (deltas) during the day over 3G. | The depot is the only place with reliable bandwidth. |
+| Photos | Compressed copies upload over 3G whenever there's signal. Full-resolution originals (if enabled) upload on depot Wi-Fi only. | About 300 KB uploads in a few seconds on 3G. Originals would eat the data plan. |
+| Retry strategy | Retry **immediately when the network comes back** (OS connectivity events), plus a backoff capped at 60 s. | Dead zones are short. A 5-minute backoff would leave stops unsynced long after signal returns. |
+| `max_offline_hours` | 12 h (one shift) | Anything older means a phone missed the depot sync. |
+| `max_media_delay_hours` | 24 h | All media should be up by the next depot visit at the latest. |
+| End-of-shift sync | The app blocks "end shift" until the queue is empty or the driver confirms they're on depot Wi-Fi and syncing. The console lists drivers with unsynced stops after shift end. | Turns depot Wi-Fi into a guaranteed catch-up point. |
+| Offline OTP check | Enabled (`offline_mode: allowed`), and offline checks are flagged for review | Drivers will often be in a dead zone at the door. |
+| SMS fallback (§6.6.9) | **Deferred** | 3G usually comes back within minutes, so the SMS cost and complexity aren't worth it. |
+
 #### 6.6.1 Offline-first capture
 - The app saves every capture to a durable local store (SQLite, plus files in app storage) **before** it tries any upload. This happens whether or not the phone is online, so there's one code path, not an "online mode" and an "offline mode".
 - Each attempt goes through these local states: `captured → queued → meta_synced → media_synced → sealed`. A local record is only removed after the server confirms it is `sealed`.
@@ -271,11 +284,11 @@ Changes made while the driver is offline (a new stop, a changed address) arrive 
 A delivery shouldn't wait for photos to upload over a weak signal. Sync is split in two:
 
 1. **Metadata phase** (about 2–5 KB per stop). This sends the attempt, the outcome, the recipient, the location and time, the reason codes, the scan values, the OTP result, the **signature as vector strokes** (a few KB, drawn as PNG on the server), and the **SHA-256 hash of every photo** that is still to come.
-   - The server checks it and moves the order or stop forward at once, with status `delivered — evidence pending`.
+   - The server checks it and moves the order or stop forward at once, with status `delivered — evidence pending`. On 3G this phase usually completes in under a second once signal returns.
    - Dispatch, the customer tracking page and the "Delivered" notification update straight away.
    - The server commits to the photo hashes now, so photos sent later can't be swapped.
 2. **Media phase.** Photos upload in the background whenever there is signal. The server checks each file against the hash it already has. When everything has arrived, the attempt is sealed (§7) and the ePOD is generated.
-   - If photos are still missing after `max_media_delay_hours` (default 72 h), the attempt is flagged for review. It isn't silently accepted.
+   - If photos are still missing after `max_media_delay_hours` (default 24 h), the attempt is flagged for review. It isn't silently accepted.
 
 #### 6.6.4 Delivery codes (OTP) with no signal
 The server-side OTP check in §6.5 can't run offline. So:
@@ -290,7 +303,7 @@ The server-side OTP check in §6.5 can't run offline. So:
 - **Photos.** Compress on the phone: longest edge 1600 px, JPEG quality around 70, so roughly 200–400 KB. Remove EXIF data. Keep the original only if `keep_originals` is on, and upload originals over Wi-Fi only.
 - **Signatures.** Send them as vector strokes, not images: about 2–8 KB instead of 50–150 KB.
 - **Resumable uploads.** Split files into chunks (`POST /v1/pod/uploads` → `PATCH …/{upload_id}` with `Upload-Offset`, tus-style, 256 KB chunks). A dropped connection resumes from the last good chunk instead of starting over.
-- **Retries.** Use exponential backoff with jitter (2 s → 5 min cap). Send small metadata before large photos, and send older stops before newer ones.
+- **Retries.** Retry as soon as the operating system reports the network is back. Otherwise use exponential backoff with jitter (2 s → 60 s cap). Send small metadata before large photos, and send older stops before newer ones.
 - **Bandwidth goal.** Under 10 KB per stop before the order can complete, and about 400 KB per photo, sent whenever possible.
 
 #### 6.6.6 Trust while records are on the phone
@@ -310,7 +323,7 @@ The server has the final say. A late attempt is decided by its trusted capture t
 | Stop reassigned to another driver | Accept the attempt from the original driver and flag it. Accept only the first delivered attempt for the stop. |
 | Address changed while offline | Run the geofence check against both the old and new address. Flag the attempt. |
 | Same `client_attempt_id` sent again | No-op. Return the stored result (idempotent). |
-| Synced after `max_offline_hours` (default 72 h) | Accept the attempt and flag it as `late_sync`. |
+| Synced after `max_offline_hours` (default 12 h) | Accept the attempt and flag it as `late_sync`. |
 
 The driver's phone shows a "sync issues" list for any attempt the server flagged or voided.
 
@@ -321,7 +334,9 @@ New fields on `pod_policies` (§5):
 - `max_offline_hours`;
 - `max_media_delay_hours`.
 
-#### 6.6.9 Optional: SMS fallback for very poor areas
+#### 6.6.9 Deferred: SMS fallback for very poor areas
+
+_Not planned for v1. With 3G coverage and depot Wi-Fi, metadata syncs within minutes of leaving a dead zone. Revisit if routes expand into areas with no data for hours at a time._
 Where data is unusable but SMS works, the app can send a **compact signed metadata message** to a Twilio inbound number (Twilio is already supported by the installer). The message holds the attempt id, outcome, time, location and a truncated signature over the record. The server records this as `meta_synced_sms`, which updates order status and customer tracking. The full metadata and photos follow when data returns. This is off by default because it adds SMS costs.
 
 #### 6.6.10 Live tracking while offline
@@ -414,7 +429,9 @@ Socket channel `order.{public_id}`: we push `pod.attempt.sealed` so the console 
 - **k6**: add evidence upload and submit to `tests/k6/api-release.js`, to watch latency.
 - **Navigator e2e**: the happy path, a failed attempt, and an offline sync.
 - **Poor-network tests** (with network throttling, for example Android emulator network profiles or `tc netem`):
-  - 2G profile (about 50 kbps, 500 ms RTT, 10–30% packet loss);
+  - **primary profile:** 3G (about 750 kbps down / 250 kbps up, 200 ms RTT, 2% loss), cycled with 30 s – 10 min dead zones every few stops;
+  - stress profile: 2G (about 50 kbps, 500 ms RTT, 10–30% packet loss);
+  - end-of-shift sync on depot Wi-Fi with 100+ queued stops;
   - airplane mode for a whole route, then sync at the depot;
   - the app killed mid-upload, then resumed;
   - the phone clock moved ±2 h;
@@ -431,7 +448,7 @@ Socket channel `order.{public_id}`: we push `pod.attempt.sealed` so the console 
 | 2 | Checks (geo, time, scan coverage), OTP, failed attempts with reasons, console order panel | 2 weeks |
 | 3 | ePOD PDF, verification page, webhooks, review queue, reports | 1.5 weeks |
 | 4 | Navigator checklist UI, offline-first store, route bundle, two-phase and resumable sync, device signing, `enforce` rollout | 3–4 weeks |
-| 4b | (Optional) SMS metadata fallback | 1 week |
+| — | SMS metadata fallback: deferred (§6.6.9) | — |
 | 5 | Retention and redaction, Ledger hold-until-PoD, backfill | 1 week |
 
 ## 17. Open questions
@@ -439,6 +456,6 @@ Socket channel `order.{public_id}`: we push `pod.attempt.sealed` so the console 
 2. When the geofence check fails, should the attempt **block** or only **flag**? Is the default 150 m right for your areas, given GPS accuracy in dense urban or rural places?
 3. What are your legal retention requirements for signatures and photos (for example, 90 days, 1 year, 7 years)?
 4. Is the "Delivered" ePOD sent to the customer by default, or only on request?
-5. What connectivity do your drivers actually have? Typical network (2G, 3G or 4G), how long they are offline (minutes or whole routes), and whether they have depot Wi-Fi. This decides whether the SMS fallback (§6.6.9) is worth building, and the defaults for `max_offline_hours`.
+5. ~~What connectivity do your drivers have?~~ **Resolved:** mostly 3G with frequent dead zones, depot Wi-Fi available. Defaults are in §6.6, and the SMS fallback is deferred.
 6. Can any goods require `online_only` proof (for example cash-on-delivery, controlled medicines)?
 7. Do we contribute the extension upstream, or keep it private to this fork? Both work under AGPL-3.0, but network use requires publishing the source to your users.
