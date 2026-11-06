@@ -1,6 +1,6 @@
 # Proof of Delivery: Agricultural Inputs Profile
 
-Status: **Draft for review, v3** (beneficiary onboarding, transporters, West Africa, third-party monitoring)
+Status: **Draft for review, v4** (English-speaking West Africa with Sierra Leone as the default, self-hosted deployment, Excel-first onboarding)
 Builds on:
 - [`DESIGN.md`](DESIGN.md), the generic PoD module;
 - [`REPORTING-AUDIT.md`](REPORTING-AUDIT.md), the reporting framework and audit rules for this profile.
@@ -20,8 +20,10 @@ This document only describes what changes for agricultural inputs. Anything not 
 | Reporting and audit | Defined in [`REPORTING-AUDIT.md`](REPORTING-AUDIT.md) |
 | Language | **English** for the app, the console, SMS and reports. The farmer-facing screens use icons first, for low literacy. |
 | Connectivity | Mostly 3G with frequent dead zones; depot Wi-Fi available |
-| Region | **West Africa** (§16) |
-| Beneficiary lists | Exist today in **Excel and on paper**, in different formats. They're imported and verified (§7.1). |
+| Countries | **English-speaking West Africa**: Sierra Leone, Liberia, Ghana, Nigeria, The Gambia. **Sierra Leone is the default** country profile (§16.1). |
+| Scale | Set by each **programme's beneficiary capacity**. There is no fixed limit; sizing guidance is in §16.4. |
+| Hosting | **Self-hosted**: on your own servers or on a cloud provider of your choice. **Not Fleetbase Cloud** (§16.3). |
+| Beneficiary lists | **Mostly Excel** (soft copies, in different layouts); a few on paper. They're imported and verified (§7.1). |
 | Hired truckers | **Install the Navigator app** (Transporter role). Vehicle GPS trackers are **optional**, an extra data source. |
 | Funder reporting | **No funder-required formats.** Reports are for the programme, government partners and audit. |
 | Field verification | Done by **M&E staff, internal auditors and independent third-party monitors (TPMs)** |
@@ -129,13 +131,13 @@ Every table has `uuid`, `public_id`, `company_uuid` and timestamps.
 
 **`pod_programmes`**:
 - `name`, `operator_type` (`ngo`, `project`, `government`), `funder`, `season`, `country`
-- `planting_windows` (JSON per district or agro-ecological zone: start and end; §16)
+- `planting_windows` (JSON per district or agro-ecological zone: start and end; §16.2)
 - `rules` (JSON: delivery models, proxy and household-member rules, witness rules, pesticide and veterinary rules, audit thresholds overriding the defaults in `REPORTING-AUDIT.md`)
 
 **`pod_beneficiaries`**:
 - `programme_uuid`, `farmer_ref`, `type` (`farmer` or `animal_health_worker`), `name`
 - `sex`, `birth_year`, `disability` (optional, for disaggregation)
-- `district`, `chiefdom`/`ward`, `village`, `household_location` (point, nullable)
+- `admin_1`, `admin_2`, `admin_3`, `admin_4`, `village`, `household_location` (point, nullable). The labels come from the country profile (§16.1); for Sierra Leone: region, district, chiefdom, section.
 - `group_uuid`, `phone` (nullable), `photo_file_uuid`
 - `card_code` (signed QR)
 - `ids` (JSON list of `{type, last4}`, where `type` is `national_id`, `voter_card`, `passport`, `drivers_licence`, `birth_certificate` or `other`; can be empty)
@@ -186,8 +188,16 @@ Every table has `uuid`, `public_id`, `company_uuid` and timestamps.
 
 ## 7. Beneficiary onboarding and identification
 
-### 7.1 Bringing in the existing lists (Excel and paper)
-Today's lists come in different formats and quality. Onboarding has four steps, and every record keeps a link to where it came from (`source`).
+### 7.1 Bringing in the existing lists (mostly Excel)
+Most lists are **Excel soft copies** in different layouts. Excel import (step 1) is the main path, and paper digitisation (step 2) is for the few lists still on paper. Every record keeps a link to where it came from (`source`).
+
+**Standard template (going forward).** The console offers a downloadable **Farmer List Template (.xlsx)** for each country profile. It has:
+- fixed columns;
+- drop-down lists for sex, ID type and admin areas (for Sierra Leone: region → district → chiefdom);
+- a phone number column checked for the country format (+232 for Sierra Leone);
+- an instructions sheet.
+
+Partners who use the template need no column mapping, and far fewer rows are rejected. Existing files in other layouts are still imported through the mapping wizard.
 
 **Step 1: Excel import** (console → Programme → Import beneficiaries)
 - Upload `.xlsx`, `.xls` or `.csv`, then pick the sheet and header row.
@@ -197,7 +207,7 @@ Today's lists come in different formats and quality. Onboarding has four steps, 
   - **sex:** `M`/`F`/`Male`/`Female`/`1`/`2` → standard values;
   - **age:** year of birth, or age in years → `birth_year`;
   - **phone:** converted to the international format (E.164) using the country code;
-  - **places:** district, chiefdom/ward and village names matched against the programme's place list, with suggestions for misspellings.
+  - **places:** admin-area and village names (for Sierra Leone: region, district, chiefdom, section) matched against the country profile's list (§16.1), with suggestions for misspellings.
 - **Validation and de-duplication** (`REPORTING-AUDIT.md` §9):
   - **exact duplicates** are merged automatically;
   - **likely duplicates** (similar name in the same village, same phone, same ID last 4) go to a review queue.
@@ -342,20 +352,78 @@ As in v1, plus:
 - Household members' consent is recorded by the head of household at registration.
 - Default retention is **7 years** (a common donor and government requirement). It can be set per programme (`REPORTING-AUDIT.md` §8).
 
-## 16. West Africa considerations
+## 16. Countries and deployment
+
+### 16.1 Country profiles (Sierra Leone is the default)
+Country-specific settings live in a **country profile**. A new programme takes **Sierra Leone** unless another country is chosen. A profile can be edited, so details can be corrected locally without code changes.
+
+| Setting | **Sierra Leone (default)** | Liberia | Ghana | Nigeria | The Gambia |
+|---|---|---|---|---|---|
+| Phone country code | **+232** | +231 | +233 | +234 | +220 |
+| Time zone | **GMT (UTC+0)** | GMT | GMT | WAT (UTC+1) | GMT |
+| Admin levels (labels) | **Region → District → Chiefdom → Section → Village** | County → District → Clan → Town | Region → District → Area council → Community | State → LGA → Ward → Community | Region → District → Village |
+| ID types offered | **National ID (NIN), Voter ID card, Passport, Driver's licence, Other** | National ID, Voter card, Passport, Other | Ghana Card, Voter ID, Passport, Other | NIN, Voter's card (PVC), Passport, Other | National ID, Voter card, Passport, Other |
+| SMS provider | **A local aggregator connected to the Sierra Leone networks (e.g. Orange, Africell, Qcell)**, or Twilio | Local aggregator or Twilio | Local aggregator or Twilio | Local aggregator or Twilio | Local aggregator or Twilio |
+
+The lists and labels above are **starting values**. Admin area names (districts, chiefdoms and so on) are loaded from an official list per country (CSV import) and confirmed before the first programme. Sierra Leone's district and chiefdom list ships as the default seed data, to be checked against the current official list.
+
+Common to all profiles:
+- English;
+- dates as DD/MM/YYYY;
+- standard bag sizes per sku (e.g. 25 kg and 50 kg).
+
+### 16.2 Regional considerations
 
 | Topic | Design decision |
 |---|---|
-| **Data protection** | The ECOWAS Supplementary Act on Personal Data Protection (A/SA.1/01/10, 2010) applies regionally, and most countries also have a national law and a data protection authority. Before go-live, confirm the national requirements of each country of operation: registration with the authority, consent wording, cross-border transfer rules. Fleetbase can be **self-hosted in the country or region**, which meets any requirement to keep data local. |
-| **IDs** | The ID types are configurable per country (national ID number, voter's card, passport, driver's licence, birth certificate, other). Only the type and last 4 digits are stored. |
-| **Phones** | Numbers are stored in E.164 format with the country code. Many farmers **share phones** within the household, so the call-back script (`REPORTING-AUDIT.md` §6.2) confirms which person is speaking. |
-| **SMS / USSD** | The SMS provider is pluggable: Twilio, or a **local aggregator** with a direct connection to the national mobile networks, which usually gives better delivery and cost. USSD complaint menus need an aggregator agreement for each country. |
-| **Planting windows** | Planting windows differ between agro-ecological zones (for example Sahel against coastal or forest zones). `planting_window_start` and `planting_window_end` are set **per district or zone** in the programme rules, not once per programme. Timeliness (I-07, I-08) uses the window for the beneficiary's district. |
-| **Rainy season access** | Roads may close during the rainy season. `road_inaccessible` failures automatically suggest moving the farmer to the nearest distribution point. Route planning can mark roads or villages as seasonal. |
-| **Power** | Devices may not be charged for days. The app has a battery-saver mode: GPS sampling reduced to 1 point per 2 minutes between stops, screen dimmed, and media uploads only when the battery is above 30%. Field teams should carry power banks or solar chargers. |
-| **Units** | Standard bag sizes (e.g. 25 kg and 50 kg) are set per sku. Dates are shown as DD/MM/YYYY. |
-| **Language** | English, as decided. The translation system stays in place, so French or Portuguese can be added later for francophone or lusophone programmes without code changes. |
-| **Security** | `security_issue` is a failure reason. A programme manager can suspend all distributions in an area, which blocks routes and events there until lifted. |
+| **Data protection** | The ECOWAS Supplementary Act on Personal Data Protection (A/SA.1/01/10, 2010) applies regionally. National laws include, for example, Ghana's Data Protection Act 2012 (Act 843) and Nigeria's Data Protection Act 2023. **For Sierra Leone, Liberia and The Gambia, confirm the current national law and any registration requirement with legal counsel before go-live.** The consent wording at registration is set per country profile. Self-hosting (§16.3) lets you keep data in the country. |
+| **Phones** | Phones are often shared in the household; see the call-back script in `REPORTING-AUDIT.md` §6.2. |
+| **SMS / USSD** | The SMS provider is pluggable per country profile. USSD complaint menus need an aggregator agreement in each country. |
+| **Planting windows** | Set **per district or zone** in the programme rules. Timeliness (I-07, I-08) uses the beneficiary's own district. |
+| **Rainy season access** | `road_inaccessible` failures suggest moving the farmer to the nearest distribution point. Villages or roads can be marked as seasonal. |
+| **Power** | Battery-saver mode (GPS every 2 minutes between stops, dimmed screen, media upload only above 30% battery). Field teams carry power banks or solar chargers. |
+| **Language** | English. The translation system stays in place for later additions. |
+| **Security** | A programme manager can suspend distributions in an area. |
+
+### 16.3 Hosting (self-hosted, not Fleetbase Cloud)
+The system runs entirely on infrastructure you control. Two supported options:
+
+| | **A. Own servers** (office or local data centre) | **B. Cloud provider of your choice** (AWS, Azure, GCP, or a local/regional provider) |
+|---|---|---|
+| Install | Docker Compose from this repository (`scripts/docker-install.sh`) | Docker Compose on a VM for smaller deployments; Kubernetes with the Helm chart in `infra/helm/` for larger ones |
+| Database | MySQL 8 on the server (the bundled container or a separate instance) | Managed MySQL 8 (e.g. RDS, Cloud SQL, Azure Database for MySQL) |
+| File storage (photos, signatures, ePODs) | MinIO (S3-compatible) on the server, or local disk for small pilots | The provider's object storage (S3, GCS, Azure Blob through an S3-compatible gateway) |
+| Data location | In the country | The provider's region. Major cloud providers have few or no regions in West Africa, so check what's available and whether national law allows data outside the country. If it doesn't, use option A or a local provider. |
+| Power and network | **UPS and generator**, plus two internet links (two ISPs), because the phones sync to this server | Handled by the provider |
+
+Both options need:
+- **TLS** (Caddy, whose config is in the repository, or another reverse proxy);
+- the production hardening from the adoption notes (a database password, no public database port, socket origins set, socket auth on, pinned image versions);
+- **backups:**
+  - nightly database dumps and file storage replication to a **second location** (another server, another cloud account or region);
+  - kept 30 days rolling plus monthly copies for the retention period (`REPORTING-AUDIT.md` §8);
+  - a restore test every quarter;
+- **monitoring:** uptime checks, disk space, queue length, and sync failure rates from the PoD module;
+- **object-lock or write-once (WORM) storage** for evidence and the daily audit-log hashes (`DESIGN.md` §7), where the storage supports it (MinIO and S3 both do).
+
+**No dependency on Fleetbase Cloud:**
+- The PoD extension is installed from your own packages (`packages/pod`), not from the Fleetbase extension registry.
+- The deployment's `REGISTRY_HOST` and `REGISTRY_PREINSTALLED_EXTENSIONS` settings (see `docker-compose.yml`) point at the public Fleetbase registry by default. Phase 8 confirms the install works with those disabled or pointing at your own registry, so nothing depends on Fleetbase services.
+- The driver app (Navigator, open source) is **built and signed by you**, pointing to your API address, and distributed through Google Play (private or unlisted) or as an APK through device management (MDM). Field phones are expected to be **Android**.
+- Map routing: use your own OSRM server with the West Africa map extract, instead of the public `router.project-osrm.org` demo server. Google Maps is optional.
+
+### 16.4 Sizing guide (by programme capacity)
+Scale depends on each programme's beneficiary capacity, so size the deployment by the **largest season you expect across all active programmes**:
+
+| Tier | Beneficiaries per season (all programmes) | Hosting | Server (application + queue + socket) | Database | Storage per season* |
+|---|---|---|---|---|---|
+| Pilot | Up to 20,000 | A or B, single VM with Docker Compose | 4 vCPU, 8 GB RAM | Same VM | ~10 GB |
+| Standard | 20,000–150,000 | A or B, Docker Compose on 2 VMs (application, database) | 8 vCPU, 16 GB RAM | 4 vCPU, 16 GB RAM, SSD | ~60 GB |
+| Large | 150,000–1,000,000 | B (or a well-equipped data centre), Kubernetes with Helm, 2+ application replicas | 3 × 8 vCPU, 16 GB RAM | Managed MySQL, 8 vCPU, 32 GB RAM, a read replica for reports | ~400 GB |
+
+\* Approximate: one 150 KB photo per handover, signatures, ePOD PDFs and registration photos, for about 2 handovers per beneficiary per season. Storage grows each season for the retention period (7 years by default).
+
+The peak load comes from **end-of-day syncs** when teams return to depots. Test with the k6 load test (`tests/k6/`) plus a PoD sync scenario sized to the tier before go-live.
 
 ## 17. Revised delivery plan
 
@@ -363,26 +431,31 @@ As in v1, plus:
 |---|---|---|
 | 0 | Fleet-Ops proof guard (DESIGN.md) | 3–4 days |
 | 1 | PoD core with counted quantities and lots; transport legs with seals, waybills and the Transporter role (Navigator for staff and hired truckers, optional vehicle trackers); discrepancies | 3 weeks |
-| 2 | Programmes; **Excel import with column mapping and de-duplication; paper list digitisation with double entry; field registration and verification mode**; entitlements; programme cards (printable PDF) and revocation | 3.5 weeks |
+| 2 | Programmes; **country profiles (Sierra Leone default) and admin-area import**; **Excel import with template, column mapping and de-duplication** (main path); paper list digitisation with double entry (minor); field registration and verification mode; entitlements; programme cards (printable PDF) and revocation | 3.5 weeks |
 | 3 | Distribution events and door-to-door routes: open, handover, failed attempts and reassignment, reconcile, close; Event ePOD | 3 weeks |
 | 4 | Navigator: offline event and route mode, card scanning, identity levels, icon-first English UI | 3–4 weeks |
 | 5 | Pesticide and veterinary rules; cold-chain readings and blocking; optional dose log | 2 weeks |
 | 6 | Audit rules engine, cases and findings, verification sampling, post-distribution monitoring (PDM) module, **third-party monitor accounts and blind samples** (`REPORTING-AUDIT.md`) | 3.5 weeks |
 | 7 | Report catalogue, dashboards, audit pack export | 2 weeks |
+| 8 | Self-hosted production setup: chosen hosting option, backups and restore test, monitoring, own OSRM server, own Navigator build and distribution, load test | 1.5 weeks (can overlap with phases 6–7) |
 
-**Total:** about 19–23 weeks with one team.
+**Total:** about 20–24 weeks with one team (19–23 if phase 8 overlaps).
 - Onboarding (phase 2) can start in parallel with phase 1, so list cleaning and field verification are under way before the first distribution.
 - A one-district pilot can run after phase 5. Audit and reporting are finished during the pilot.
 
 ## 18. Remaining questions
-1. **Which West African countries first?** This sets the ID types, phone country codes, SMS aggregator and data protection registration.
-2. **Scale:** number of farmers, districts and distribution events per season. This affects PDM sample sizes and server sizing.
-3. **Hosting:** run it on your own server in the country, a regional cloud, or Fleetbase Cloud? This depends on government data-residency expectations.
-4. **Paper lists:** roughly how many pages or farmers are on paper, so data-entry staffing can be planned.
+1. **Hosting choice:** own servers (option A) or a cloud provider (option B), and which one? This decides the storage and backup setup in phase 8.
+2. **Sierra Leone data protection:** confirm the current legal requirements with counsel (§16.2).
+3. **Admin area list:** do you have an official district/chiefdom/section list for Sierra Leone (Excel), or should we use the seed list and check it?
+4. **First programme's expected capacity**, to choose the sizing tier (§16.4) for the first deployment.
+
+Resolved in v4:
+- English-speaking West Africa, with Sierra Leone as the default (§16.1);
+- scale is set by programme capacity (§16.4);
+- self-hosted, own servers or cloud, not Fleetbase Cloud (§16.3);
+- farmer lists are mostly Excel (§7.1).
 
 Resolved in v3:
-- beneficiary lists (Excel and paper → §7.1);
 - truckers use the app, and vehicle GPS is optional (§4.3);
 - no funder report formats;
-- region is West Africa (§16);
 - M&E, auditors and third parties all do visits (`REPORTING-AUDIT.md` §6.3).

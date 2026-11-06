@@ -1,7 +1,7 @@
 # Proof of Delivery: Reporting and Audit Framework (Agricultural Inputs)
 
 Status: **Draft for review**
-Applies to: [`AGRI-INPUTS.md`](AGRI-INPUTS.md), for programmes run by NGOs, projects and governments in West Africa.
+Applies to: [`AGRI-INPUTS.md`](AGRI-INPUTS.md), for programmes run by NGOs, projects and governments in English-speaking West Africa (Sierra Leone by default).
 
 Funders don't require specific report formats. The reports here are for programme management, government partners and audit, and can be shared with funders as they are.
 
@@ -43,7 +43,7 @@ The system enforces these as IAM roles and policies. It also refuses any action 
 ## 3. Indicators
 
 Each indicator has an ID, a formula and a default target. All indicators can be broken down by:
-- **programme / funder**, **season**, **district → chiefdom/ward → village**;
+- **programme / funder**, **season**, **admin areas from the country profile** (Sierra Leone default: region → district → chiefdom → section → village);
 - **delivery model** (distribution point or door-to-door), **input** (sku and category), **transporter**;
 - **sex**, **age band** (15–24, 25–35 (youth), 36–59, 60+), **disability** (where recorded).
 
