@@ -1,7 +1,7 @@
 # Proof of Delivery (PoD) Module — Design
 
 Status: **Draft for review**
-Profiles: [Agricultural inputs](AGRI-INPUTS.md). This adapts the module for farmer input distribution programmes.
+Profiles: [Agricultural inputs](AGRI-INPUTS.md), which adapts the module for farmer input distribution programmes, with [reporting and audit](REPORTING-AUDIT.md).
 Target: Fleetbase v0.7.75, Fleet-Ops `0.6.75` (submodule commit `811aa71`)
 
 ## 1. Summary
