@@ -1,7 +1,9 @@
 # Proof of Delivery: Reporting and Audit Framework (Agricultural Inputs)
 
 Status: **Draft for review**
-Applies to: [`AGRI-INPUTS.md`](AGRI-INPUTS.md), for programmes run by NGOs, projects and governments.
+Applies to: [`AGRI-INPUTS.md`](AGRI-INPUTS.md), for programmes run by NGOs, projects and governments in West Africa.
+
+Funders don't require specific report formats. The reports here are for programme management, government partners and audit, and can be shared with funders as they are.
 
 This document defines:
 - what is reported, and how each figure is calculated (§3–4);
@@ -33,7 +35,8 @@ All thresholds are **defaults**. A programme can override them in `pod_programme
 | **Programme manager** | Approve overrides (AR-13, bypass), void with a reason, reassign entitlements, approve beneficiary changes | Audit; close cases about their own approvals |
 | **M&E officer** | Run sampling, call-backs and PDM; produce reports | Change distribution records |
 | **Internal auditor** | Read everything, including evidence; run integrity checks; create findings; close cases | Change distribution records |
-| **Funder / ministry viewer** | See aggregated reports and audit pack summaries | See farmer-level personal data (unless granted in writing) |
+| **Third-party monitor (TPM)** (independent organisation) | Field visits and call-backs on its **own blind sample**; record PDM and observation results; see summaries of its findings | See any beneficiary outside its sample; see programme-staff PDM results before submitting its own; change any distribution record |
+| **Government / partner viewer** | See aggregated reports and audit pack summaries | See farmer-level personal data (unless granted in writing) |
 
 The system enforces these as IAM roles and policies. It also refuses any action where the actor is the same user who created the record under review (for example a void, a case resolution or a release).
 
@@ -59,8 +62,8 @@ Each indicator has an ID, a formula and a default target. All indicators can be 
 
 | ID | Indicator | Formula | Target |
 |---|---|---|---|
-| I-07 | On-time delivery | Quantity handed over **before** `planting_window_start` ÷ total handed over | ≥ 90% |
-| I-08 | Late delivery | Quantity handed over **after** `planting_window_end` ÷ total | ≤ 2% |
+| I-07 | On-time delivery | Quantity handed over **before** the planting window start **for the beneficiary's district or zone** ÷ total handed over | ≥ 90% |
+| I-08 | Late delivery | Quantity handed over **after** the planting window end for the district or zone ÷ total | ≤ 2% |
 | I-09 | Leg transit time | Median (received − loaded) per leg type and transporter | Within expected |
 
 ### 3.3 Stock integrity
@@ -110,6 +113,16 @@ Each indicator has an ID, a formula and a default target. All indicators can be 
 | I-30 | First-attempt success | Households served on the first attempt ÷ households attempted | ≥ 85% |
 | I-31 | Reassignment rate | Entitlements moved from door-to-door to a distribution point ÷ door-to-door entitlements | ≤ 10% |
 
+### 3.8 Beneficiary list quality
+
+| ID | Indicator | Formula | Target |
+|---|---|---|---|
+| I-32 | Verified beneficiaries | `verified` ÷ beneficiaries on the season's list, by source (Excel, paper, field) | 100% before distribution |
+| I-33 | List rejection rate | `rejected` (not known, moved, deceased, duplicate) ÷ beneficiaries checked, by source and district | Monitored (a high rate means a poor source list) |
+| I-34 | Field additions | Beneficiaries added in the field ÷ beneficiaries on the season's list | ≤ 5% |
+| I-35 | Paper entry accuracy | Fields matching in the double-entry check ÷ fields checked | ≥ 98% |
+| I-36 | Independent agreement | TPM confirmation rate − internal M&E confirmation rate (I-20 by visitor type) | Within ±5 percentage points |
+
 ## 4. Report catalogue
 
 All reports are in English. They export as **PDF** (signed, with seal hashes), **XLSX** and **CSV**. Each one shows the generation time, the filters used and a dataset hash, so an exported report can be matched to the system later.
@@ -125,8 +138,10 @@ All reports are in English. They export as **PDF** (signed, with seal hashes), *
 | R-07 | **Pesticide distribution register** | Regulator, safety lead | Monthly; on recall | Every restricted-product handover: recipient, training date, product, lot, quantity, PPE, safety ack. **Recall view** per lot. |
 | R-08 | **Verification report** | M&E, audit | Monthly | Sample design, call-back and PDM results (I-19, I-20), findings, comparison against the recorded data |
 | R-09 | **Complaints report** | Management, funder | Monthly | I-27–I-29, by type and location, with resolution status |
-| R-10 | **End-of-season report** (funder/ministry) | Funder, ministry | End of season | All indicators against targets with breakdowns, map of coverage, end-of-season balance (I-14), audit summary, lessons. A template can be mapped to funder formats. |
+| R-10 | **End-of-season programme report** | Programme management, government partners (shareable with funders) | End of season | All indicators against targets with breakdowns, map of coverage, end-of-season balance (I-14), beneficiary list quality (I-32–I-35), audit summary including third-party monitoring results (I-36), lessons. One standard layout; no funder-specific templates. |
 | R-11 | **Audit pack** | Internal/external auditors | On demand | R-02 for every event, R-03 for every leg, all findings and cases, the integrity check result (§6.7), access log extract, data dictionary |
+| R-12 | **Beneficiary onboarding report** | Programme manager, M&E | During onboarding; weekly | Import results per file and paper list (accepted, merged, rejected, fix-up queue), verification progress by village, field additions awaiting approval, I-32–I-35 |
+| R-13 | **Third-party monitoring report** | Programme management, auditors | Per TPM round | The TPM's sample, completion, findings and confirmation rate against internal M&E (I-36), with differences by district. The TPM submits it through its own role; programme staff can't edit it. |
 
 Reports are built on the Fleet-Ops report schema, so the console's report builder can produce extra ad-hoc reports from the same data.
 
@@ -172,6 +187,9 @@ Severity and what follows:
 | AR-23 | Transport anomaly | Transit time > 2 × expected; or, with GPS, route deviation > 10 km or a stop > 60 min outside known places | Medium | Flag; check against AR-01 and AR-02 results |
 | AR-24 | Beneficiary data change during distribution | Phone, photo, ID or household members changed less than 7 days before or during their event | Medium | Flag; needs second approval |
 | AR-25 | Unusually uniform records | > 30% of an event's handovers have identical timestamps to the minute, or the same thumbprint image hash | High | Flag the event for full verification |
+| AR-26 | Independent results disagree | The TPM confirmation rate for a district is more than 5 percentage points below the internal M&E rate, or the TPM finds "not received" where the internal sample confirmed receipt | High | Open a case for the internal auditor (not the programme manager); extend the TPM sample in that district |
+| AR-27 | Unverified or field-added beneficiary | Entitlement generated or handover made for a beneficiary who isn't `verified`, or a field addition without programme manager approval | Medium | Block entitlement generation until approved; oversample if handed over |
+| AR-28 | Transporter track gap or mismatch | Gap > 60 min in the transporter's phone track during a leg, or the phone and vehicle tracker more than 2 km apart for > 15 min | Medium | Flag the leg; check against AR-01 and AR-02 results |
 
 Rule thresholds and severities live in `config/pod-agri-audit.php` and can be overridden per programme. Each rule has unit tests with positive and negative cases.
 
@@ -181,7 +199,7 @@ Rule thresholds and severities live in `config/pod-agri-audit.php` and can be ov
 The rules engine (§5) checks **100%** of records. The flag rate (I-18) and open cases are on R-01 and R-04.
 
 ### 6.2 Remote verification (call-backs)
-- **Who is called:** handovers whose beneficiary has a phone.
+- **Who is called:** handovers whose beneficiary has a phone. Phones are often shared in a household, so the caller first asks for the beneficiary by name and confirms they're the person on the line (programme card number and village), or records who answered.
 - **Sample size:** 5% of the season's handovers, with **at least 10 per event or route**. Double for flagged events and for L1, proxy and household-member handovers.
 - **Selection:** random, drawn by the system (seeded, recorded, so it can be reproduced). The M&E officer can't choose who to call.
 - **Caller:** M&E staff who weren't at the event, using a script in English with a local-language interpreter where needed. Results are entered in the console.
@@ -196,6 +214,21 @@ The rules engine (§5) checks **100%** of records. The flag rate (I-18) and open
 
 ### 6.3 Post-distribution monitoring (PDM) household visits
 - **What:** an in-person visit to a sample of farmers, 2–6 weeks after distribution, using the same offline app in **PDM mode**.
+- **Who visits.** Three groups, each with its **own sample**, so results can be compared:
+
+  | Visitor | Sample | Purpose |
+  |---|---|---|
+  | **Internal M&E** | The main sample (size below) | Routine monitoring |
+  | **Third-party monitor (TPM)** | An **independent blind sample**, at least 30% of the M&E sample size, and at least 30 per district | Independent check of both the distribution and internal M&E |
+  | **Internal auditors** | **Targeted:** events and villages with Critical/High flags, substantiated complaints, or AR-26 hits | Investigation |
+
+- **Blind sampling for the TPM:**
+  - the system draws the TPM sample with its own seed when the TPM requests it;
+  - the list is only visible to TPM accounts;
+  - programme staff see **only the sample size**, not who is in it, until the TPM marks the round complete;
+  - this stops staff from "preparing" the farmers who will be visited.
+- **TPM data access:** for each sampled beneficiary only, a TPM sees the name, village, household location, programme card number, photo thumbnail, entitlement and a recorded handover summary. Their accounts are time-limited to the monitoring round. Every view is logged (§8).
+- **Comparison:** R-13 and I-36 compare the TPM results with internal M&E. A significant gap raises AR-26, which goes to the internal auditor, not the programme manager, to keep it independent.
 - **Sample design:**
   - stratified by **district × delivery model**;
   - sample size per programme from the standard formula for proportions:
@@ -295,7 +328,9 @@ flag ──(severity ≥ Medium)──▶ case ──▶ investigation ──▶
 - **Exports:** every exported report records the dataset hash and the user. Re-exporting the same filters later must give the same hash, unless records changed through the audited void process.
 
 ## 9. Data quality checks (on import and on sync)
-- **Beneficiary import:**
+- **Beneficiary import** (Excel and paper sources; see `AGRI-INPUTS.md` §7.1):
+  - column mapping saved per source format, and the normalisation rules applied (names, sex, age, E.164 phone, place matching);
+  - paper pages double-entered on a 10% sample, re-entered in full if > 2% of fields disagree (I-35);
   - required fields present;
   - duplicates by ID + name + village and by phone;
   - valid age range;
@@ -310,4 +345,4 @@ flag ──(severity ≥ Medium)──▶ case ──▶ investigation ──▶
   - `pod:sample-callbacks {programme}` and `pod:sample-pdm {programme}` draw samples using a recorded seed;
   - the sample lists are themselves audited records.
 - **Reports:** the indicator queries are defined once (I-xx → SQL view or report-schema definition) and reused by dashboards, PDFs and exports, so numbers always match between reports.
-- **Permissions:** the IAM roles in §2 ship as default policies with the extension.
+- **Permissions:** the IAM roles in §2 ship as default policies with the extension. The TPM role is scoped to its blind sample by a row-level policy, not just hidden in the UI.

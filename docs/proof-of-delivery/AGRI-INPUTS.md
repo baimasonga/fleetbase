@@ -1,6 +1,6 @@
 # Proof of Delivery: Agricultural Inputs Profile
 
-Status: **Draft for review, v2** (updated with the confirmed operating model)
+Status: **Draft for review, v3** (beneficiary onboarding, transporters, West Africa, third-party monitoring)
 Builds on:
 - [`DESIGN.md`](DESIGN.md), the generic PoD module;
 - [`REPORTING-AUDIT.md`](REPORTING-AUDIT.md), the reporting framework and audit rules for this profile.
@@ -20,6 +20,11 @@ This document only describes what changes for agricultural inputs. Anything not 
 | Reporting and audit | Defined in [`REPORTING-AUDIT.md`](REPORTING-AUDIT.md) |
 | Language | **English** for the app, the console, SMS and reports. The farmer-facing screens use icons first, for low literacy. |
 | Connectivity | Mostly 3G with frequent dead zones; depot Wi-Fi available |
+| Region | **West Africa** (§16) |
+| Beneficiary lists | Exist today in **Excel and on paper**, in different formats. They're imported and verified (§7.1). |
+| Hired truckers | **Install the Navigator app** (Transporter role). Vehicle GPS trackers are **optional**, an extra data source. |
+| Funder reporting | **No funder-required formats.** Reports are for the programme, government partners and audit. |
+| Field verification | Done by **M&E staff, internal auditors and independent third-party monitors (TPMs)** |
 
 ## 2. What changes compared with commercial delivery
 
@@ -30,7 +35,7 @@ This document only describes what changes for agricultural inputs. Anything not 
 | What is proven | "Parcel delivered" | **Quantity per input line** (bags, kg, litres, doses), lot/batch, condition, and temperature for cold-chain items |
 | Main identity proof | Signature or OTP | **Programme card QR**, ID check where available, photo, mark or thumbprint, witness |
 | Main risks | Lost or disputed parcels | **Double collection, ghost beneficiaries, diversion in transit, theft by transporters, broken cold chain, unsafe pesticide handling** |
-| Accountability | Customer and billing | Funder or government audit: reconciliation to the bag or dose (see `REPORTING-AUDIT.md`) |
+| Accountability | Customer and billing | Programme, government and independent audit: reconciliation to the bag or dose (see `REPORTING-AUDIT.md`) |
 
 ## 3. Delivery models
 
@@ -95,8 +100,14 @@ They use the Navigator app as normal drivers, with full GPS tracking.
 
 ### 4.3 Hired truckers
 - The transport company is a Fleet-Ops **Vendor**. Each trucker is a **Driver** with a limited **Transporter** role: they can see their legs, share location and sign. Their truck is a **Vehicle**.
-- **If the trucker installs Navigator:** live GPS, plus a geofence check on arrival.
-- **If they don't:** the leg relies on the loading and receiving records, the seals and the waybill. Expected travel time is checked (audit rule AR-23). Optional: a GPS tracker clipped to the load, connected through Fleet-Ops telematics.
+- **The trucker uses Navigator** (required for hired truckers, as for staff). This gives:
+  - live GPS while the leg is in transit;
+  - a geofence check on arrival;
+  - their signature on the device at loading and receiving.
+
+  The app links to the trucker's phone number, and the Transporter role only sees that trucker's own legs.
+- **Vehicle GPS trackers (optional).** When a truck has one, connect it through Fleet-Ops telematics as a **second, independent track**. The phone track is then compared with the vehicle track. If they're more than 2 km apart for more than 15 minutes, the phone may have left the truck (AR-28).
+- **If the phone dies or has no signal**, the app keeps a local track and backfills it (`DESIGN.md` §6.6.10). The leg can still be received on the strength of the seals, counts and waybill. Any gap of more than 60 minutes in the track is flagged under AR-28.
 - **Liability.** The contracted transporter is responsible for any shortage between loading and receiving. Transporter performance (losses, delays, seal breaches) is reported per vendor (`REPORTING-AUDIT.md` R-05).
 - Paying transporters is out of scope for v1. Their contracts can be handled in Ledger later.
 
@@ -117,8 +128,8 @@ They use the Navigator app as normal drivers, with full GPS tracking.
 Every table has `uuid`, `public_id`, `company_uuid` and timestamps.
 
 **`pod_programmes`**:
-- `name`, `operator_type` (`ngo`, `project`, `government`), `funder`, `season`
-- `planting_window_start`, `planting_window_end`
+- `name`, `operator_type` (`ngo`, `project`, `government`), `funder`, `season`, `country`
+- `planting_windows` (JSON per district or agro-ecological zone: start and end; §16)
 - `rules` (JSON: delivery models, proxy and household-member rules, witness rules, pesticide and veterinary rules, audit thresholds overriding the defaults in `REPORTING-AUDIT.md`)
 
 **`pod_beneficiaries`**:
@@ -133,6 +144,8 @@ Every table has `uuid`, `public_id`, `company_uuid` and timestamps.
 - `trained_restricted_products` (date or null)
 - `livestock` (JSON: counts per species, for livestock entitlements)
 - `consent_at`, `status` (`active`, `suspended`, `deceased`, `moved`, `duplicate`)
+- `source` (JSON: `excel` file + sheet + row, `paper` list id + page + line, or `field_registration`), `source_file_uuid` (the original Excel file or paper scan)
+- `verification_status` (`unverified`, `verified`, `rejected`), `verified_at`, `verified_by`, `verification_method` (`field_visit`, `community_validation`, `first_handover`)
 
 **`pod_entitlements`**:
 - `beneficiary_uuid`, `programme_uuid`, `sku`, `quantity`, `unit`
@@ -171,9 +184,50 @@ Every table has `uuid`, `public_id`, `company_uuid` and timestamps.
 
 **`pod_cases`** and **`pod_audit_findings`**: see `REPORTING-AUDIT.md` §7.
 
-## 7. Identifying farmers (with or without an ID document)
+## 7. Beneficiary onboarding and identification
 
-**Everyone gets a programme card at registration**, a QR code signed by the server, so every farmer has at least one machine-checkable credential. Each handover is given an **identity level**:
+### 7.1 Bringing in the existing lists (Excel and paper)
+Today's lists come in different formats and quality. Onboarding has four steps, and every record keeps a link to where it came from (`source`).
+
+**Step 1: Excel import** (console → Programme → Import beneficiaries)
+- Upload `.xlsx`, `.xls` or `.csv`, then pick the sheet and header row.
+- **Column mapping wizard:** match the file's columns to beneficiary fields. Saved mappings can be reused for the next file in the same format.
+- **Normalisation:**
+  - **names:** trim, collapse spaces, title case;
+  - **sex:** `M`/`F`/`Male`/`Female`/`1`/`2` → standard values;
+  - **age:** year of birth, or age in years → `birth_year`;
+  - **phone:** converted to the international format (E.164) using the country code;
+  - **places:** district, chiefdom/ward and village names matched against the programme's place list, with suggestions for misspellings.
+- **Validation and de-duplication** (`REPORTING-AUDIT.md` §9):
+  - **exact duplicates** are merged automatically;
+  - **likely duplicates** (similar name in the same village, same phone, same ID last 4) go to a review queue.
+- **Preview:** the import result is shown before anything is saved. Rejected rows go to a fix-up queue with reasons; nothing is dropped silently.
+- The original file is stored, and each beneficiary keeps its file, sheet and row as `source`.
+
+**Step 2: Digitising paper lists**
+- **Scan or photograph** each page of the paper list in the app or console. The images are stored as the `source` evidence for those records.
+- **Enter the data** through a quick-entry console form that shows the page image side by side.
+- **Double-entry check** for quality: a second clerk re-enters a random 10% of each page. If more than 2% of fields disagree, the whole page is entered again.
+- Records from paper start `unverified`, like every imported record.
+
+**Step 3: Field verification and card issue** (before the first distribution)
+Lists from Excel and paper are often out of date, so every beneficiary must be **verified once** before they are issued a programme card. Two ways:
+- **Community validation meeting** (recommended, quickest). An officer meets the village with the chief or group leader, using the app in **registration mode**, which works offline. For each farmer on the list, the officer:
+  1. confirms the farmer is present and known to the community;
+  2. takes the farmer's photo;
+  3. records any ID (type + last 4), phone, household members and household GPS;
+  4. records consent;
+  5. prints or hands out the programme card.
+
+  Farmers not found are marked `rejected` (reason: not known, moved, deceased) after a second visit. People who are eligible but missing from the list can be **added in the field**, but they start `unverified` and need programme manager approval (AR-27).
+- **Verify on first handover** (fallback, for programmes that can't hold validation meetings). The first handover does the verification steps above, at identity level L1 or L2, and is sampled at double the normal rate.
+
+**Step 4: Approval**
+- The programme manager approves the verified list for the season. Entitlements are only generated for `verified` beneficiaries, unless the programme allows verify-on-first-handover.
+
+### 7.2 Identity levels at handover
+
+**Everyone gets a programme card at verification**, a QR code signed by the server, so every farmer has at least one machine-checkable credential. Each handover is given an **identity level**:
 
 | Level | Required | Typical case |
 |---|---|---|
@@ -265,7 +319,7 @@ opening_stock = Σ handed_over + closing_stock + Σ discrepancies
 The detailed rules, thresholds and actions are in `REPORTING-AUDIT.md` §5. The main ones:
 - **Double collection:** AR-03 and AR-20.
 - **Ghost beneficiaries:** AR-09 and AR-16, plus identity levels and verification sampling.
-- **Diversion in transit:** AR-01, AR-02 and AR-23.
+- **Diversion in transit:** AR-01, AR-02, AR-23 and AR-28.
 - **Officer misconduct:** AR-05, AR-07, AR-08, AR-12, AR-21, plus segregation of duties.
 
 ## 13. Offline behaviour
@@ -288,25 +342,47 @@ As in v1, plus:
 - Household members' consent is recorded by the head of household at registration.
 - Default retention is **7 years** (a common donor and government requirement). It can be set per programme (`REPORTING-AUDIT.md` §8).
 
-## 16. Revised delivery plan
+## 16. West Africa considerations
+
+| Topic | Design decision |
+|---|---|
+| **Data protection** | The ECOWAS Supplementary Act on Personal Data Protection (A/SA.1/01/10, 2010) applies regionally, and most countries also have a national law and a data protection authority. Before go-live, confirm the national requirements of each country of operation: registration with the authority, consent wording, cross-border transfer rules. Fleetbase can be **self-hosted in the country or region**, which meets any requirement to keep data local. |
+| **IDs** | The ID types are configurable per country (national ID number, voter's card, passport, driver's licence, birth certificate, other). Only the type and last 4 digits are stored. |
+| **Phones** | Numbers are stored in E.164 format with the country code. Many farmers **share phones** within the household, so the call-back script (`REPORTING-AUDIT.md` §6.2) confirms which person is speaking. |
+| **SMS / USSD** | The SMS provider is pluggable: Twilio, or a **local aggregator** with a direct connection to the national mobile networks, which usually gives better delivery and cost. USSD complaint menus need an aggregator agreement for each country. |
+| **Planting windows** | Planting windows differ between agro-ecological zones (for example Sahel against coastal or forest zones). `planting_window_start` and `planting_window_end` are set **per district or zone** in the programme rules, not once per programme. Timeliness (I-07, I-08) uses the window for the beneficiary's district. |
+| **Rainy season access** | Roads may close during the rainy season. `road_inaccessible` failures automatically suggest moving the farmer to the nearest distribution point. Route planning can mark roads or villages as seasonal. |
+| **Power** | Devices may not be charged for days. The app has a battery-saver mode: GPS sampling reduced to 1 point per 2 minutes between stops, screen dimmed, and media uploads only when the battery is above 30%. Field teams should carry power banks or solar chargers. |
+| **Units** | Standard bag sizes (e.g. 25 kg and 50 kg) are set per sku. Dates are shown as DD/MM/YYYY. |
+| **Language** | English, as decided. The translation system stays in place, so French or Portuguese can be added later for francophone or lusophone programmes without code changes. |
+| **Security** | `security_issue` is a failure reason. A programme manager can suspend all distributions in an area, which blocks routes and events there until lifted. |
+
+## 17. Revised delivery plan
 
 | Phase | Scope | Est. |
 |---|---|---|
 | 0 | Fleet-Ops proof guard (DESIGN.md) | 3–4 days |
-| 1 | PoD core with counted quantities and lots; transport legs with seals, waybills and the Transporter role; discrepancies | 3 weeks |
-| 2 | Programmes; beneficiary and household import (CSV/XLSX); entitlements; programme cards (printable PDF) and revocation | 2 weeks |
+| 1 | PoD core with counted quantities and lots; transport legs with seals, waybills and the Transporter role (Navigator for staff and hired truckers, optional vehicle trackers); discrepancies | 3 weeks |
+| 2 | Programmes; **Excel import with column mapping and de-duplication; paper list digitisation with double entry; field registration and verification mode**; entitlements; programme cards (printable PDF) and revocation | 3.5 weeks |
 | 3 | Distribution events and door-to-door routes: open, handover, failed attempts and reassignment, reconcile, close; Event ePOD | 3 weeks |
 | 4 | Navigator: offline event and route mode, card scanning, identity levels, icon-first English UI | 3–4 weeks |
 | 5 | Pesticide and veterinary rules; cold-chain readings and blocking; optional dose log | 2 weeks |
-| 6 | Audit rules engine, cases and findings, verification sampling, post-distribution monitoring (PDM) module (`REPORTING-AUDIT.md`) | 3 weeks |
+| 6 | Audit rules engine, cases and findings, verification sampling, post-distribution monitoring (PDM) module, **third-party monitor accounts and blind samples** (`REPORTING-AUDIT.md`) | 3.5 weeks |
 | 7 | Report catalogue, dashboards, audit pack export | 2 weeks |
 
-**Total:** about 18–21 weeks with one team. A one-district pilot can run after phase 5, with audit and reporting finished during the pilot.
+**Total:** about 19–23 weeks with one team.
+- Onboarding (phase 2) can start in parallel with phase 1, so list cleaning and field verification are under way before the first distribution.
+- A one-district pilot can run after phase 5. Audit and reporting are finished during the pilot.
 
-## 17. Remaining questions
-1. Is there an existing beneficiary list or registry, and in what format? Or does registration happen in the app?
-2. Scale: number of farmers, districts and distribution events per season. This affects sample sizes and server sizing.
-3. Will hired truckers install Navigator, or should we plan for load-mounted GPS trackers?
-4. Do specific funders require their own report templates (for example a USAID, FAO or World Bank format)? The R-10 report can be mapped to them.
-5. Which country's data-protection law applies, and does the government need data stored in the country (self-hosting location)?
-6. Who carries out post-distribution monitoring: an M&E team in the programme, or an independent third party?
+## 18. Remaining questions
+1. **Which West African countries first?** This sets the ID types, phone country codes, SMS aggregator and data protection registration.
+2. **Scale:** number of farmers, districts and distribution events per season. This affects PDM sample sizes and server sizing.
+3. **Hosting:** run it on your own server in the country, a regional cloud, or Fleetbase Cloud? This depends on government data-residency expectations.
+4. **Paper lists:** roughly how many pages or farmers are on paper, so data-entry staffing can be planned.
+
+Resolved in v3:
+- beneficiary lists (Excel and paper → §7.1);
+- truckers use the app, and vehicle GPS is optional (§4.3);
+- no funder report formats;
+- region is West Africa (§16);
+- M&E, auditors and third parties all do visits (`REPORTING-AUDIT.md` §6.3).
