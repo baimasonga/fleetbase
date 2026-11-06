@@ -5,7 +5,7 @@ Builds on: [`DESIGN.md`](DESIGN.md), the generic PoD module. This document only 
 
 ## 1. Context and assumptions
 
-The PoD module is used to distribute **agricultural inputs** (seed, fertiliser, agrochemicals, small tools, and possibly livestock inputs) to **farmers**, not to sell commercial goods. The assumptions below need confirming (§14):
+The PoD module is used to distribute **agricultural inputs** (seed, fertiliser, agrochemicals, small tools, and possibly livestock inputs) to **farmers**, not to sell commercial goods. The assumptions below need confirming (§16):
 
 - **Programme-based.** Distribution runs as a programme: a government subsidy, an NGO or donor project, or a cooperative scheme. It is organised by **season**, and each farmer has a fixed **entitlement** (for example 1 × 25 kg seed + 2 × 50 kg NPK).
 - **Registered recipients.** Recipients are **registered beneficiaries**, from a farmer registry or a programme list. Many have no smartphone, some have no phone at all, and literacy varies.
