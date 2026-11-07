@@ -7,7 +7,7 @@ Design documents (in this repository):
 - [`docs/proof-of-delivery/AGRI-INPUTS.md`](../../docs/proof-of-delivery/AGRI-INPUTS.md): the agricultural inputs profile
 - [`docs/proof-of-delivery/REPORTING-AUDIT.md`](../../docs/proof-of-delivery/REPORTING-AUDIT.md): reporting and audit rules
 
-## What's built (v0.2.0)
+## What's built (v0.3.0)
 
 | Area | Design ref | Status |
 |---|---|---|
@@ -23,9 +23,14 @@ Design documents (in this repository):
 | **Field verification**: consent, corrections, rejection with reasons (cancels untouched entitlements) | AGRI §7.1 step 3 | Done (API; the offline field app isn't built yet) |
 | **Programme cards**: issued at verification; replacement revokes the old card; re-verification after rejection gets a new card; card check API; append-only card log | AGRI §7.2 | Done |
 | **Printable cards**: A4 PDF, 8 ID-size cards per page, QR code + typed code, by area, village or list | AGRI §7.2 | Done (no photos yet; the photo box is left for a printed or pasted photo) |
+| **Sites and stock**: central warehouses, district stores, distribution points and vehicles; supplier deliveries; an append-only stock ledger per item and lot that can't go negative | AGRI §3, §4 | Done (own ledger; Pallet isn't connected) |
+| **Truck trips**: load (count, lots, seals, waybill, pesticides kept apart) → depart → arrive → receive (good and damaged counts, seal check) → close; shortages, damage and excess become discrepancies that must be explained and resolved; broken seals must be explained; the loader can't receive or close; slow trips flagged; sealed with a hash | AGRI §4, AR-01, AR-02, AR-23 | Done (Fleet-Ops orders can be linked, not created) |
+| **Distribution days**: assign farmers by area, village or list; witnessed opening count; handovers by card scan or ID with identity levels, remaining-entitlement checks, expired and recalled lots refused, restricted products for trained farmers only, proof policy (photo, mark or signature, witness for proxy or L1, safety acknowledgement for pesticides); retries can't issue twice; location checks; sealed records | AGRI §7.2, §8, §9 | Done |
+| **Door-to-door routes**: handovers at the household (200 m check), failed attempts with reasons, reassignment to a distribution point after the maximum attempts, moved/deceased sent to registry review | AGRI §3.2 | Done |
+| **Closing and the day report**: witnessed closing count reconciled per item and lot (refused until every unit is accounted for), leftover stock returned to the site, totals by sex and age band, report as JSON or PDF in the country's local time, sealed with a hash | AGRI §11, REPORTING R-02 | Done |
 | **Stock reconciliation** per sku and lot | AGRI §11 | Done (engine) |
 
-Not built yet, in the order of the delivery plan: transport legs with seals, distribution events and door-to-door handovers, the Navigator app changes, cold chain, audit rules, reporting, and the console screens. The console UI (Ember engine) isn't started; everything above is available through the API.
+Not built yet, in the order of the delivery plan: the Navigator app changes (offline field app), cold chain readings, the audit rules engine and verification sampling, programme reports, role-based permissions, and the console screens. The console UI (Ember engine) isn't started; everything above is available through the API.
 
 ## Install (own server)
 
@@ -85,8 +90,49 @@ The extension lives in `packages/pod` of this repository.
 | GET | `beneficiaries/{id}/card` | The current card code |
 | POST | `programmes/{id}/cards/pdf` | `{"admin_3": "SL010101"}`, `{"village": ...}` or `{"beneficiaries": [ids]}` → PDF (at most 400 cards) |
 | POST | `programmes/{id}/cards/check` | `{"code": "FBP1..."}` → valid or the reason (`revoked`, `not_verified`, `bad_signature`...), and open entitlements |
+| GET, POST | `sites` | Stores, distribution points, vehicles |
+| GET | `sites/{id}` | With stock on hand per item and lot |
+| POST | `sites/{id}/stock/receive` | Supplier delivery: `{programme, reference, lines: [{sku, lot, expiry, quantity}]}` |
+| GET, POST | `programmes/{id}/legs` | Truck trips: `{origin, destination, transporter_kind, transporter_name, vehicle_plate, waybill_no, expected_duration_min}` |
+| GET | `legs/{id}` | With lines and discrepancies |
+| POST | `legs/{id}/load` | `{lines: [{sku, lot, quantity}], seals: [...], restricted_segregated}` |
+| POST | `legs/{id}/depart`, `legs/{id}/arrive` | |
+| POST | `legs/{id}/receive` | `{lines: [{sku, lot, good, damaged, note}], seals: [{number, intact}]}`, by someone other than the loader |
+| POST | `legs/{id}/close` | `{seal_explanation}` when the seals weren't intact |
+| POST | `legs/{id}/cancel` | Before departure; loaded stock goes back |
+| POST | `discrepancies/{id}/resolve` | `{notes, resolution: written_off \| replaced \| recovered \| investigating, reason?, liable_party?}` |
+| GET, POST | `programmes/{id}/events` | Distribution days and routes: `{kind: point \| route, site, name, scheduled_date}` |
+| GET | `events/{id}` | With stock and totals |
+| POST | `events/{id}/assign` | `{admin_3}`, `{village}` or `{beneficiaries: [...]}` |
+| POST | `events/{id}/open` | `{stock: [{sku, lot, quantity}], witnesses: [{name, role}]}` |
+| GET, POST | `events/{id}/handovers` | A handover (below) |
+| POST | `events/{id}/attempts` | Failed door-to-door attempt: `{beneficiary, reason, latitude, longitude}` |
+| POST | `events/{id}/reassign` | `{beneficiary, to_event}` |
+| POST | `events/{id}/discrepancies` | Damaged or missing stock during the day: `{sku, lot, quantity, reason, notes}` |
+| POST | `events/{id}/close` | `{stock: [...], witnesses: [...]}`; refused with the unbalanced lines until every unit is accounted for |
+| GET | `events/{id}/report` | JSON, or `?format=pdf` |
 
 All requests are scoped to the signed-in user's company.
+
+### A handover
+
+```json
+{
+  "client_handover_id": "phone7-000123",
+  "card_code": "FBP1.programme_x.beneficiary_y.1.ABC...",
+  "identity": {"face_matched": true, "id_last4": "6789"},
+  "received_by": "self",
+  "lines": [{"sku": "RICE-25", "lot": "R7", "quantity": 1}, {"sku": "NPK-50", "lot": "L1", "quantity": 2}],
+  "evidence": [{"type": "photo", "file": "file_uuid"}, {"type": "mark"}],
+  "latitude": 7.9806, "longitude": -10.6362
+}
+```
+
+- **Without a card:** give `beneficiary` and `identity: {photo_taken, witness_confirmed}` instead (identity level L1). A witness signature is then needed in `evidence`.
+- **Collected by someone else:** `received_by: proxy` (or `household_member`) with `recipient_name`. A proxy needs a witness signature.
+- **Pesticides and veterinary drugs:** these need `{"type": "safety_ack"}`.
+- **Refusals:** a refused handover answers 422 with an `error` code for the field app. The codes are `card_revoked`, `already_collected`, `assigned_elsewhere`, `over_entitlement`, `lot_expired`, `lot_recalled`, `not_trained`, `identity_insufficient` and `proof_missing` (with the `missing` requirements).
+- **Retries:** sending the same `client_handover_id` again returns the original handover instead of issuing twice.
 
 ### Entitlement rules
 
