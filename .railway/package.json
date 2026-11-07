@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Railway Infrastructure as Code for Invendis (railway config plan / apply)",
+  "dependencies": {
+    "railway": "3.16.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

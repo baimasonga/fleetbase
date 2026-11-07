@@ -1,5 +1,7 @@
 # Railway variables
 
+`.railway/railway.ts` sets all of these when you run `railway config apply`. You only need this page for the manual route ("Without the CLI" in the guide) or to check a value.
+
 `${{...}}` are Railway reference variables: paste them as they are, and Railway fills them in (`shared.` for shared variables, `MySQL.`/`api.` and so on for another service's). Service names must match the ones in the guide (`api`, `queue`, `scheduler`, `socket`, `console`, `MySQL`, `Redis`). Values in `<...>` are yours to fill in.
 
 ## Shared variables: the secrets (Project Settings → Shared Variables)
