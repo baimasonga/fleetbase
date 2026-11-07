@@ -1,14 +1,14 @@
 // Checks .railway/railway.ts without a Railway account (CI and local):
 // evaluates it with Railway's SDK and checks what it describes.
 //   npm install --prefix .railway && npx --prefix .railway tsc -p .railway --noEmit false --outDir .railway/.out && node .railway/check.mjs
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRailwayContext, project } from 'railway/iac';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
-const { default: program, partial } = await import(join(here, '.out', 'railway.js'));
+const { default: program, partial, PRE_DEPLOY } = await import(join(here, '.out', 'railway.js'));
 const def = await program(createRailwayContext({ projectName: 'check' }), project);
 const resources = def.resources.flat();
 const problems = [];
@@ -29,6 +29,10 @@ for (const s of services) {
   }
   console.log(`ok ${s.name}: ${s.source?.repo}@${s.source?.branch} ${s.source?.rootDirectory ? '/' + s.source.rootDirectory + ' ' : ''}${s.build?.dockerfilePath}`);
 }
+
+// The guide's dashboard route must use the same pre-deploy command.
+const guide = readFileSync(join(root, 'railway', 'README.md'), 'utf8');
+if (!guide.includes('`' + PRE_DEPLOY + '`')) problems.push('railway/README.md: the api pre-deploy command differs from PRE_DEPLOY in .railway/railway.ts');
 
 if (problems.length) {
   console.error(problems.join('\n'));

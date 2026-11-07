@@ -25,6 +25,10 @@ export const partial = "invendis";
 const REPO = "baimasonga/fleetbase";
 const BRANCH = "main";
 
+/** Runs before each api deploy. Also used by the manual setup in railway/README.md. */
+export const PRE_DEPLOY =
+  "sh -c './deploy.sh && php artisan pod:seed-admin-areas SL && if [ -n \"$POD_ADMIN_PASSWORD\" ]; then php artisan pod:create-admin --no-interaction; fi'";
+
 /** A Railway reference inside a longer value, e.g. "https://" + ref("api", "RAILWAY_PUBLIC_DOMAIN"). */
 const ref = (resource: string, variable: string) => "${{" + resource + "." + variable + "}}";
 
@@ -91,7 +95,9 @@ export default defineRailway((ctx, project) => {
       // Replaces the image's ENTRYPOINT (which would read settings from AWS Parameter Store).
       startCommand: "sh -c 'exec php artisan octane:frankenphp --max-requests=1000 --host=0.0.0.0 --port=${PORT:-8000}'",
       // Databases, migrations, seed data, roles and permissions, Sierra Leone admin areas. Safe to repeat.
-      preDeployCommand: ["sh -c './deploy.sh && php artisan pod:seed-admin-areas SL'"],
+      // With POD_ADMIN_EMAIL and POD_ADMIN_PASSWORD set (temporarily, in the dashboard), it also
+      // creates the super administrator; remove POD_ADMIN_PASSWORD afterwards.
+      preDeployCommand: [PRE_DEPLOY],
       preDeployTimeoutSeconds: 1800,
       healthcheckPath: "/pod-field/",
       healthcheckTimeout: 300,

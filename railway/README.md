@@ -14,104 +14,125 @@ Invendis runs on Fleetbase. On Railway it is seven services in one project, buil
 
 The whole project is described in [`.railway/railway.ts`](../.railway/railway.ts), Railway's **Infrastructure as Code** format, and applied with the Railway CLI. Railway no longer reads `railway.toml` / `railway.json` for new services: that format ("Config as Code") is deprecated and stops working altogether on 1 December 2026. A service created in the dashboard without the steps below falls back to Railpack and fails with *"Railpack could not determine how to build the app"*.
 
-## Before you start
+## Two ways to set it up
+
+- **A. From the Railway website**: clicks and copy-paste only, nothing to install. Best on Windows.
+- **B. With the Railway command-line tool**: one command creates everything from [`.railway/railway.ts`](../.railway/railway.ts). For people comfortable with a terminal.
+
+Both give the same result. Before either:
 
 - A Railway account on a paid plan (Hobby is enough for the pilot). Seven services with a database: expect roughly US$20–40 a month at pilot size, mostly the API and MySQL. Check Railway's pricing page for current figures.
 - The Railway GitHub app given access to **`baimasonga/fleetbase`** (not Fleetbase's original `fleetbase/fleetbase`, which doesn't contain Invendis).
-- On your computer: Node.js and the [Railway CLI](https://docs.railway.com/guides/cli), version 5.42.1 or newer, signed in (`railway login`).
 
-## 1. The secrets
+## A. From the Railway website (Windows-friendly)
 
-Generate them on your computer:
+### A1. Make the secrets (PowerShell, once)
 
-```bash
-sh railway/generate-secrets.sh
+Press **Start**, type **PowerShell**, open **Windows PowerShell**, paste these lines and press **Enter**:
+
+```powershell
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+function New-Secret([int]$Bytes) { $b = New-Object byte[] $Bytes; $rng.GetBytes($b); [Convert]::ToBase64String($b) }
+"APP_KEY=base64:" + (New-Secret 32)
+"POD_CARD_SECRET=" + (New-Secret 48)
+"POD_ID_HASH_KEY=" + (New-Secret 48)
+"SOCKETCLUSTER_AUTH_KEY=" + (New-Secret 48)
 ```
 
-In your Railway project, open **Project Settings → Shared Variables** and add the four values it prints: `APP_KEY`, `POD_CARD_SECRET`, `POD_ID_HASH_KEY`, `SOCKETCLUSTER_AUTH_KEY`. Keep a copy in a password manager. `.railway/railway.ts` only refers to them by name; they're never written into the repository.
+It prints four lines (the same script is in `railway/generate-secrets.ps1`). Save them in a password manager. Then, in your Railway project, open **Settings → Shared Variables** and add each one: the part before `=` is the name, the part after is the value.
 
-## 2. Create everything with one command
+### A2. Databases
 
-From the root of this repository:
+On the project canvas: **Create → Database → MySQL**, then **Create → Database → Redis**. Keep their names `MySQL` and `Redis`.
 
-```bash
-npm install --prefix .railway
-```
+### A3. The five services
 
-```bash
-railway link
-```
+For each row: **Create → GitHub Repo → baimasonga/fleetbase**. Then, in the new service:
 
-Choose your project (for example `chic-trust`) and its `production` environment. Then preview the changes; this changes nothing:
+1. **Settings**, at the top: rename it exactly as in the first column. The services refer to each other by these names.
+2. **Settings → Source:** branch `main`. Set the root directory only for `socket`. Turn on **Wait for CI**.
+3. **Settings → Deploy:** fill in the commands below (leave a box empty where the table has nothing).
+4. **Variables → Raw Editor:** paste that service's block from [`variables.md`](variables.md). Each block starts with `RAILWAY_DOCKERFILE_PATH`, the variable that makes Railway build with Docker instead of failing with Railpack.
 
-```bash
-railway config plan
-```
-
-It should list MySQL, Redis, a volume, and the services `api`, `queue`, `scheduler`, `socket` and `console`, all from `baimasonga/fleetbase` on `main`, built from Dockerfiles. Then apply, after checking the changes it shows you:
-
-```bash
-railway config apply
-```
-
-The file only manages what it declares (`partial = "invendis"`), so other services in the project are left alone. If you created a service by hand earlier (for example one called `fleetbase`), delete it in the dashboard: the file creates `api` in its place.
-
-## 3. Public addresses
-
-The file can't create Railway's generated addresses, so add them in the dashboard. On each service: **Settings → Networking → Generate Domain**.
-
-| Service | Port |
-|---|---|
-| `api` | `8000` |
-| `socket` | `8000` |
-| `console` | `4200` |
-
-Then **Deploy** (top of the canvas), or redeploy the five services.
-
-The first deploy takes a while: the API image compiles PHP extensions, and the console is a large build. Before the api starts, Railway runs its pre-deploy step: it creates the databases, runs the migrations, creates the roles and permissions, and loads the Sierra Leone admin areas. It's safe to repeat, and it runs again on every deploy.
-
-## 4. Settings to choose yourself
-
-- **Region:** under each service's Settings → Region, choose the European one (closest to Sierra Leone). Railway has no West African region.
-- **Email:** the file sets `MAIL_MAILER=log`, so emails only appear in the logs. Before inviting staff, set a real mailer on `api`, `queue` and `scheduler`, for example `MAIL_MAILER=smtp` with `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION=tls` and `MAIL_FROM_ADDRESS`. Add them to `.railway/railway.ts` (with secrets as shared variables) and apply again; otherwise the next apply removes variables it doesn't know.
-
-### Without the CLI: the same setup by hand
-
-If you'd rather use the dashboard, create MySQL (`MySQL`), Redis (`Redis`) and five services from `baimasonga/fleetbase` on `main`, named exactly as below, with these settings:
-
-| Service | Source → Root directory | Variable `RAILWAY_DOCKERFILE_PATH` | Deploy → Custom start command | Pre-deploy command | Healthcheck path |
+| Name | Root directory | Custom start command | Pre-deploy command | Healthcheck path | Variables block |
 |---|---|---|---|---|---|
-| `api` | *(empty)* | `docker/Dockerfile` | `sh -c 'exec php artisan octane:frankenphp --max-requests=1000 --host=0.0.0.0 --port=${PORT:-8000}'` | `sh -c './deploy.sh && php artisan pod:seed-admin-areas SL'` | `/pod-field/` |
-| `queue` | *(empty)* | `docker/Dockerfile` | `php artisan queue:work --tries=3 --timeout=300` | | |
-| `scheduler` | *(empty)* | `docker/Dockerfile` | `go-crond --verbose root:./crontab` | | |
-| `socket` | `/socket` | `Dockerfile` | *(empty)* | | `/health-check` |
-| `console` | *(empty)* | `railway/console.Dockerfile` | *(empty)* | | `/` |
+| `api` | *(empty)* | `sh -c 'exec php artisan octane:frankenphp --max-requests=1000 --host=0.0.0.0 --port=${PORT:-8000}'` | `sh -c './deploy.sh && php artisan pod:seed-admin-areas SL && if [ -n "$POD_ADMIN_PASSWORD" ]; then php artisan pod:create-admin --no-interaction; fi'` | `/pod-field/` | "api, queue and scheduler", plus "api: one more" |
+| `queue` | *(empty)* | `php artisan queue:work --tries=3 --timeout=300` | | | "api, queue and scheduler" |
+| `scheduler` | *(empty)* | `go-crond --verbose root:./crontab` | | | "api, queue and scheduler" |
+| `socket` | `/socket` | | | `/health-check` | "socket" |
+| `console` | *(empty)* | | | `/` | "console" |
 
-`RAILWAY_DOCKERFILE_PATH` is what makes Railway build with Docker instead of Railpack. Add a volume to `api` mounted at `/fleetbase/api/storage/app`, generate the domains as in step 3, and paste the variables from [`variables.md`](variables.md).
+If you created a service earlier that failed (for example one called `fleetbase`), you can rename it to `api` and set it up as above, or delete it.
 
-## 5. Create the super administrator
+### A4. Storage and addresses
 
-With the [Railway CLI](https://docs.railway.com/guides/cli), from this repository:
+- **api → Settings → Volumes → Add volume**, mount path `/fleetbase/api/storage/app`. Photos, signatures, imported farmer lists and printed cards are kept there.
+- **Settings → Networking → Generate Domain** on `api` (port `8000`), `socket` (port `8000`) and `console` (port `4200`).
+- **Settings → Region** on each service: choose the European one, closest to Sierra Leone.
 
-```bash
-railway link
-```
+### A5. Your super administrator, without a terminal
 
-```bash
-railway ssh --service api
-```
+On **api → Variables**, add two variables for the first deploy only:
 
-Then, inside the container:
+- `POD_ADMIN_EMAIL`: your email.
+- `POD_ADMIN_PASSWORD`: a strong password, at least 12 characters, mixing upper case, lower case, digits and symbols.
 
-```bash
-php artisan pod:create-admin --email=<your email> --organisation="<your organisation>"
-```
+### A6. Deploy
 
-It asks for the password twice, without showing it. Don't put the password in a variable or on the command line.
+Click **Deploy** at the top of the canvas. The first deploy takes a while: the API image compiles PHP extensions, and the console is a large build. Before the api starts, its pre-deploy step creates the databases, runs the migrations, creates the roles and permissions, loads the Sierra Leone admin areas, and creates your super administrator. It's safe to repeat, and it runs again on every deploy.
 
-Then sign in to the console at `https://<console domain>`. Give each person their Invendis role under **IAM → Users** (see the package README, "Roles").
+When the api's deploy shows **Success**, **delete `POD_ADMIN_PASSWORD`** from its variables. The account stays, and the password is no longer stored in Railway. Sign in to the console at `https://<console domain>` with that email and password.
 
-## 6. The field app
+## B. With the Railway command-line tool
+
+You need Node.js and the [Railway CLI](https://docs.railway.com/guides/cli) (version 5.42.1 or newer), signed in with `railway login`. On Windows, run these in PowerShell from the folder where you cloned the repository.
+
+1. **Secrets:** make them as in A1 (on macOS/Linux, `sh railway/generate-secrets.sh`) and add them as shared variables.
+2. **Create everything:**
+
+   ```bash
+   npm install --prefix .railway
+   ```
+
+   ```bash
+   railway link
+   ```
+
+   ```bash
+   railway config plan
+   ```
+
+   ```bash
+   railway config apply
+   ```
+
+   `railway link` asks for your project and environment. `plan` changes nothing: it should list MySQL, Redis, a volume, and the services `api`, `queue`, `scheduler`, `socket` and `console`, all from `baimasonga/fleetbase` on `main`, built from Dockerfiles. `apply` asks before changing anything. The file only manages what it declares (`partial = "invendis"`), so other services in the project are left alone; delete any service you made by hand earlier.
+3. **Addresses and region** as in A4 (the file can't create Railway's generated domains).
+4. **Super administrator:** as in A5 and A6, or from a terminal:
+
+   ```bash
+   railway ssh --service api
+   ```
+
+   Then, inside the container:
+
+   ```bash
+   php artisan pod:create-admin --email=<your email> --organisation="<your organisation>"
+   ```
+
+   It asks for the password twice, without showing it.
+
+Changes to the setup itself (a new variable or service) go into `.railway/railway.ts`, then `railway config plan` and `railway config apply`. Variables set only in the dashboard are removed by the next `apply`, so add them to the file too (secrets as shared variables).
+
+## Email
+
+Both routes start with `MAIL_MAILER=log`: emails only appear in the logs. Before inviting staff, set a real mailer on `api`, `queue` and `scheduler`, for example `MAIL_MAILER=smtp` with `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_ENCRYPTION=tls` and `MAIL_FROM_ADDRESS`.
+
+## After the first deploy
+
+Give each person their Invendis role in the console under **IAM → Users** (see the package README, "Roles").
+
+## The field app
 
 Officers open **`https://<api domain>/pod-field/`** in Chrome on their phone, then **Add to Home screen**. It's served by the api service, over HTTPS, which the camera and offline storage need.
 

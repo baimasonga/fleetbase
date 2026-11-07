@@ -6,7 +6,7 @@
 
 ## Shared variables: the secrets (Project Settings → Shared Variables)
 
-Enter these once, from `sh railway/generate-secrets.sh`. Keep a copy in your password manager: `POD_CARD_SECRET` signs every printed farmer card and `POD_ID_HASH_KEY` protects ID numbers, so losing or changing them breaks the cards already printed.
+Enter these once. Generate them on Windows with `railway/generate-secrets.ps1` (or the PowerShell lines in the guide), or on macOS/Linux with `sh railway/generate-secrets.sh`. Keep a copy in your password manager: `POD_CARD_SECRET` signs every printed farmer card and `POD_ID_HASH_KEY` protects ID numbers, so losing or changing them breaks the cards already printed.
 
 ```
 APP_KEY=base64:...
@@ -20,6 +20,7 @@ SOCKETCLUSTER_AUTH_KEY=...
 Paste this into each of the three services (Variables → Raw Editor):
 
 ```
+RAILWAY_DOCKERFILE_PATH=docker/Dockerfile
 APP_NAME=Invendis
 APP_ENV=production
 APP_DEBUG=false
@@ -68,6 +69,13 @@ Mail: `log` only writes emails to the logs. For password resets and invitations,
 PORT=8000
 ```
 
+For the first deploy only, also add these two to create the super administrator, then delete `POD_ADMIN_PASSWORD` once the deploy has succeeded:
+
+```
+POD_ADMIN_EMAIL=<your email>
+POD_ADMIN_PASSWORD=<a strong password: 12+ characters, mixing upper case, lower case, digits, symbols>
+```
+
 Networking: generate a public domain on port **8000**. Attach a volume at `/fleetbase/api/storage/app` (photos, signatures, imported farmer lists, printed cards).
 
 ## queue, scheduler
@@ -77,6 +85,7 @@ Nothing more. No public domain.
 ## socket
 
 ```
+RAILWAY_DOCKERFILE_PATH=Dockerfile
 SOCKETCLUSTER_PORT=8000
 SOCKETCLUSTER_OPTIONS={"origins":"https://${{console.RAILWAY_PUBLIC_DOMAIN}}:*"}
 SOCKETCLUSTER_AUTH_ENABLED=false
@@ -89,6 +98,7 @@ Networking: generate a public domain on port **8000**.
 ## console
 
 ```
+RAILWAY_DOCKERFILE_PATH=railway/console.Dockerfile
 PORT=4200
 API_HOST=https://${{api.RAILWAY_PUBLIC_DOMAIN}}
 SOCKETCLUSTER_HOST=${{socket.RAILWAY_PUBLIC_DOMAIN}}

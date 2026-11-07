@@ -11,7 +11,9 @@ use Illuminate\Console\Command;
  * The password is never taken on the command line, where it would stay in
  * the shell history and the process list. It is asked for with hidden input,
  * or read from POD_ADMIN_PASSWORD for an unattended install (set it only for
- * that run, then remove it).
+ * that run, then remove it). On Railway, the api's pre-deploy step runs this
+ * command when POD_ADMIN_EMAIL and POD_ADMIN_PASSWORD are set, so the account
+ * can be made from the dashboard alone.
  */
 class CreateAdmin extends Command
 {
@@ -27,7 +29,7 @@ class CreateAdmin extends Command
 
     public function handle(AdminAccount $accounts): int
     {
-        $email = trim((string) ($this->option('email') ?: env('POD_ADMIN_EMAIL', '')));
+        $email = trim((string) ($this->option('email') ?: self::variable('POD_ADMIN_EMAIL', '')));
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $this->error('Give the administrator\'s email with --email or POD_ADMIN_EMAIL.');
 
@@ -43,7 +45,7 @@ class CreateAdmin extends Command
             }
         }
 
-        $organisation = (string) ($this->option('organisation') ?: env('POD_ORGANISATION', 'Invendis'));
+        $organisation = (string) ($this->option('organisation') ?: self::variable('POD_ORGANISATION', 'Invendis'));
 
         try {
             $result = $accounts->ensure($email, (string) $this->option('name'), $organisation, $password);
@@ -62,7 +64,7 @@ class CreateAdmin extends Command
 
     private function password(): ?string
     {
-        $fromEnv = env('POD_ADMIN_PASSWORD');
+        $fromEnv = self::variable('POD_ADMIN_PASSWORD');
         if (is_string($fromEnv) && $fromEnv !== '') {
             $password = $fromEnv;
         } else {
@@ -87,6 +89,21 @@ class CreateAdmin extends Command
         }
 
         return $password;
+    }
+
+    /**
+     * The process's environment variable. Not env(): once Laravel's config is
+     * cached (deploy.sh caches it), env() returns null outside config files,
+     * and this command reads the variables directly during a deploy.
+     */
+    private static function variable(string $name, ?string $default = null): ?string
+    {
+        $value = getenv($name);
+        if ($value === false || $value === '') {
+            $value = $_ENV[$name] ?? $_SERVER[$name] ?? null;
+        }
+
+        return is_string($value) && $value !== '' ? $value : $default;
     }
 
     public static function weakness(string $password): ?string
