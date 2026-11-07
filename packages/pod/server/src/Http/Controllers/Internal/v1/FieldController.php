@@ -52,8 +52,9 @@ class FieldController extends PodController
     public function me()
     {
         return response()->json([
-            'user' => $this->userUuid(),
-            'can'  => array_map(fn ($permission) => $this->gate->allows($permission), self::CAPABILITIES),
+            'company' => $this->companyUuid(),
+            'user'    => $this->userUuid(),
+            'can'     => array_map(fn ($permission) => $this->gate->allows($permission), self::CAPABILITIES),
         ]);
     }
 

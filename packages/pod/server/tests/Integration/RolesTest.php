@@ -104,6 +104,8 @@ final class RolesTest extends IntegrationTestCase
         $this->as(self::OFFICER)->postJson("int/v1/pod/beneficiaries/{$this->farmer->public_id}/verify", ['method' => 'community_validation', 'consent' => true])->assertStatus(403);
         $this->assertSame(['field' => true, 'open_day' => true, 'close_day' => true, 'hand_over' => true, 'record_stock' => true, 'review_conflicts' => false, 'resolve_conflicts' => false], $this->as(self::OFFICER)->getJson('int/v1/pod/me')->json('can'));
         $this->assertTrue($this->as(self::SUPERVISOR_USER)->getJson('int/v1/pod/me')->json('can.resolve_conflicts'));
+        $me = $this->as(self::OFFICER)->getJson('int/v1/pod/me');
+        $this->assertSame([self::COMPANY, self::OFFICER], [$me->json('company'), $me->json('user')], 'the field app keeps data per account');
     }
 
     public function testFieldRecordsThePersonMayNotSendAreKeptOffTheServerNotLost(): void

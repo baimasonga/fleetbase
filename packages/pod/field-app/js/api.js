@@ -18,12 +18,13 @@ export class OfflineError extends Error {
 
 /**
  * @param {string} path  under /int/v1/, e.g. "pod/field/events"
- * @param {{method?: string, json?: any, form?: FormData, timeout?: number, auth?: boolean}} options
+ * @param {{method?: string, json?: any, form?: FormData, timeout?: number, auth?: boolean, token?: string}} options
+ *   token: use this token instead of the saved one (to check a sign-in before keeping it)
  */
-export async function api(path, { method = 'GET', json, form, timeout = 25000, auth = true } = {}) {
+export async function api(path, { method = 'GET', json, form, timeout = 25000, auth = true, token: useToken = null } = {}) {
   const headers = { Accept: 'application/json' };
   if (auth) {
-    const token = await setting('token');
+    const token = useToken || await setting('token');
     if (token) headers.Authorization = `Bearer ${token}`;
   }
   let body;

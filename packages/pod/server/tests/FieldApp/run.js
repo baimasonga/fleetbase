@@ -299,6 +299,20 @@ const waitIdle = (page) => page.waitForFunction(() => document.getElementById('n
   await sv.page.getByText('Reviewed, nothing to record').waitFor();
   await sv.page.screenshot({ animations: 'disabled', path: `${E}/shots/12-resolved.png` });
 
+  // ---- Another account on phone 1: the officer's data doesn't stay ----------------------
+  // Everything is sent, so the officer can sign out; the supervisor then signs in on the
+  // same phone and must not see the officer's farmer list (or its card key).
+  await page.goto(`${base}/pod-field/#/`);
+  await page.getByRole('heading', { name: 'Your distributions' }).waitFor();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await page.getByLabel('Email or phone').waitFor(); // signed out
+  await signIn(page, 'supervisor@example.org');
+  await page.getByText('Nothing on this phone yet.').waitFor();
+  assert.strictEqual(await page.evaluate(() => new Promise((resolve) => {
+    const r = indexedDB.open('pod-field');
+    r.onsuccess = () => { const q = r.result.transaction('bundles').objectStore('bundles').count(); q.onsuccess = () => resolve(q.result); };
+  })), 0, 'no distribution left from the officer');
+
   // ---- What the server holds ----------------------------------------------------------
   event = (await apiGet(`pod/events/${seed.event}`)).event;
   assert.strictEqual(event.status, 'closed');

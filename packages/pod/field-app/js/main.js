@@ -136,10 +136,10 @@ function renderLogin() {
           throw new Error('This account uses two-step sign-in, which the field app does not support yet. Ask an administrator for a field account.');
         }
         if (!data || !data.token) throw new Error('Sign-in did not work. Try again.');
+        await switchAccount(data.token);
         await db.setSetting('token', data.token);
         await db.setSetting('identity', identity.value.trim());
         await db.setSetting('auth_expired', false);
-        await db.setSetting('can', null); // a different person may have signed in
         go('#/');
       } catch (err) {
         error.replaceChildren(notice('bad', err instanceof OfflineError ? 'No connection. Sign in once with signal, for example on the depot Wi-Fi.' : err.message));
@@ -162,6 +162,29 @@ function renderLogin() {
       h('p', { class: 'muted' }, 'Sign in with your account. You need signal only to sign in and to download a distribution.')),
     form);
   identity.focus();
+}
+
+/**
+ * What's on the phone belongs to the account that downloaded or recorded it:
+ * farmer lists, the programme's card key, records waiting to be sent. When a
+ * different account signs in, that is cleared first, so it's never shown to
+ * or sent by someone else. If records from the other account are still
+ * waiting, the sign-in is refused instead: they must be sent by their owner.
+ */
+async function switchAccount(token) {
+  const me = await api('pod/me', { token });
+  const owner = `${me.company}:${me.user}`;
+  const previous = await db.setting('owner');
+  if (previous && previous !== owner) {
+    const s = await syncStatus();
+    if (s.pending || s.mediaPending) {
+      throw new Error(`This phone has ${plural(s.pending + s.mediaPending, 'record')} from another account that ${s.pending + s.mediaPending === 1 ? 'is' : 'are'} not sent yet. Sign in with that account and send them first. Nothing was changed.`);
+    }
+    await db.clearStores(['bundles', 'outbox', 'media']);
+    for (const key of ['can', 'last_sync', 'last_sync_error', 'clock_offset_ms']) await db.setSetting(key, null);
+  }
+  await db.setSetting('owner', owner);
+  await db.setSetting('can', me.can || null);
 }
 
 // ---------------------------------------------------------------------------

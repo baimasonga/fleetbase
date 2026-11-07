@@ -1,7 +1,7 @@
 // Everything the app keeps on the phone, in IndexedDB. Nothing here is lost when
 // the app is closed, the phone restarts or the battery dies.
 //
-//   settings  key -> value          token, user, device id, counters, clock offset
+//   settings  key -> value          token, owner (company:user), device id, counters, clock offset
 //   bundles   event id -> bundle    downloaded distribution data
 //   outbox    client id -> record   handovers and attempts waiting to sync (and their results)
 //   media     media id -> {blob}    photos and signatures waiting to upload
@@ -55,6 +55,16 @@ export function putMany(writes) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error || new Error('The save was cancelled. Is the phone out of storage?'));
+  }));
+}
+
+/** Empty several stores in one transaction. */
+export function clearStores(stores) {
+  return open().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(stores, 'readwrite');
+    for (const store of stores) tx.objectStore(store).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   }));
 }
 

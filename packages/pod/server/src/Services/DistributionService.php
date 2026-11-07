@@ -247,11 +247,28 @@ class DistributionService
         $flags = array_merge($flags, $syncFlags);
 
         $handover = DB::transaction(function () use ($event, $programme, $beneficiary, $input, $userUuid, $lines, $here, $level, $checks, $cardValid, $govIdMatched, $receivedBy, $evidence, $distance, $flags) {
+            // Another phone may have recorded a handover for this farmer since the
+            // entitlements were read above: lock them and check again, so the
+            // same entitlement can't be handed over twice by concurrent syncs.
+            $here = Entitlement::whereIn('uuid', $here->pluck('uuid'))->lockForUpdate()->get()->keyBy('sku');
+            $bySku = [];
+            foreach ($lines as $line) {
+                $bySku[$line['sku']] = ($bySku[$line['sku']] ?? 0) + $line['quantity'];
+            }
+            foreach ($bySku as $sku => $quantity) {
+                $entitlement = $here[$sku] ?? null;
+                $remaining   = $entitlement ? round($entitlement->quantity - $entitlement->collected_quantity, 3) : 0.0;
+                if ($quantity > $remaining + 0.0005) {
+                    throw $remaining <= 0.0005 && $here->every(fn ($e) => $e->collected_quantity + 0.0005 >= $e->quantity)
+                        ? new HandoverRefused('already_collected', 'This farmer has already collected everything they are entitled to.')
+                        : new HandoverRefused('over_entitlement', sprintf('%s: %s %s left to collect, %s asked for.', $sku, $this->number(max(0, $remaining)), $entitlement?->unit, $this->number($quantity)));
+                }
+            }
+
+            // Complete when every entitlement is fully collected, adding up all lots of an item.
             $complete = true;
             foreach ($here as $sku => $entitlement) {
-                $line      = collect($lines)->firstWhere('sku', $sku);
-                $collected = $entitlement->collected_quantity + ($line['quantity'] ?? 0);
-                if ($collected + 0.0005 < $entitlement->quantity) {
+                if ($entitlement->collected_quantity + ($bySku[$sku] ?? 0) + 0.0005 < $entitlement->quantity) {
                     $complete = false;
                 }
             }
