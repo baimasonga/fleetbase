@@ -1,6 +1,6 @@
 {
     "name": "Proof of Delivery",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "description": "Proof of delivery for Fleetbase, with an agricultural inputs distribution profile (programmes, farmer lists, cards, policies). Sierra Leone is the default country.",
     "repository": "https://github.com/baimasonga/fleetbase",
     "license": "AGPL-3.0-or-later",

@@ -9,6 +9,9 @@ $app['router']->post('int/v1/auth/login', function (\Illuminate\Http\Request $re
     if ($request->input('identity') === 'officer@example.org' && $request->input('password') === 'field-pass') {
         return response()->json(['token' => 'e2e-11111111-1111-1111-1111-111111111111', 'type' => 'user']);
     }
+    if ($request->input('identity') === 'supervisor@example.org' && $request->input('password') === 'field-pass') {
+        return response()->json(['token' => 'e2e-11111111-1111-1111-1111-111111111111~55555555-5555-5555-5555-555555555555', 'type' => 'user']);
+    }
 
     return response()->json(['errors' => ['These credentials do not match our records.']], 401);
 });

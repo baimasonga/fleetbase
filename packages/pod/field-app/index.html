@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1f5c2e">
+<meta name="theme-color" content="#17552f">
 <title>Field Distribution</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -13,12 +13,20 @@
 <script type="module" src="js/main.js"></script>
 </head>
 <body>
+<a class="skip" href="#app">Skip to content</a>
 <header class="bar">
-  <span class="title" id="title">Field Distribution</span>
+  <button type="button" class="bar-back" id="back" aria-label="Back" hidden>
+    <svg class="icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+  </button>
+  <div class="bar-titles">
+    <span class="bar-title" id="title">Field Distribution</span>
+    <span class="bar-subtitle" id="subtitle" hidden></span>
+  </div>
   <span class="net" id="net" role="status" aria-live="polite"></span>
 </header>
-<main id="app" tabindex="-1"><p class="muted pad">Loading…</p></main>
+<main id="app" class="screen" tabindex="-1"><p class="muted">Loading…</p></main>
+<div id="actionbar" class="actionbar" hidden></div>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-<noscript><p class="pad">This app needs JavaScript.</p></noscript>
+<noscript><p>This app needs JavaScript.</p></noscript>
 </body>
 </html>

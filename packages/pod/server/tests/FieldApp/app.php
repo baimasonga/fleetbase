@@ -17,14 +17,16 @@ use Orchestra\Testbench\Foundation\Application;
 
 final class E2eAuth
 {
-    // "Bearer e2e-<company>" -> that company; anything else -> 401.
+    // "Bearer e2e-<company>" -> that company, as the field officer;
+    // "Bearer e2e-<company>~<user>" -> that company, as another user. Anything else -> 401.
     public function handle(Request $request, \Closure $next)
     {
         $token = (string) $request->bearerToken();
         if (!str_starts_with($token, 'e2e-')) {
             return response()->json(['errors' => ['Unauthenticated.']], 401);
         }
-        session(['company' => substr($token, 4), 'user' => '33333333-3333-3333-3333-333333333333']);
+        [$company, $user] = array_pad(explode('~', substr($token, 4), 2), 2, '33333333-3333-3333-3333-333333333333');
+        session(['company' => $company, 'user' => $user]);
 
         return $next($request);
     }

@@ -54,3 +54,20 @@ export async function api(path, { method = 'GET', json, form, timeout = 25000, a
   if (!response.ok) throw new ApiError(response.status, data);
   return data;
 }
+
+/** A file (a photo or signature) as a Blob, with the sign-in token. */
+export async function apiBlob(path, { timeout = 30000 } = {}) {
+  const token = await setting('token');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(`/int/v1/${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: controller.signal, credentials: 'omit' });
+    if (!response.ok) throw new ApiError(response.status, null);
+    return await response.blob();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new OfflineError();
+  } finally {
+    clearTimeout(timer);
+  }
+}

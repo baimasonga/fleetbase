@@ -65,7 +65,27 @@ The server must use **HTTPS**. Phones only allow the camera, and the app's offli
 - **Records keep their capture time.** They're processed in the order they happened. A record that reaches the server more than 12 hours later is flagged `late_sync`, and one dated in the future is flagged `clock_ahead`.
 - **Photos and signatures are tamper-checked.** The record contains a SHA-256 fingerprint of each one, and the upload is checked against it. Each file is deleted from the phone only after the server confirms it arrived intact.
 - **Openings, closings and discrepancies aren't applied twice either:** each has its own id made on the phone. An offline opening or closing is dated when it happened, not when it synced. On the server, closings are processed after the other records in the same batch, so a discrepancy recorded after a failed closing still counts first.
-- **Conflicts are kept, never dropped.** If the server can't accept a record made offline (for example, the same farmer was served on another phone first), it's kept as a **conflict** for a supervisor to review: `GET /int/v1/pod/events/{id}/conflicts`. The goods have already been given, so the supervisor records what happened, usually as a discrepancy, before the day can be closed.
+- **Conflicts are kept, never dropped.** If the server can't accept a record made offline (for example, the same farmer was served on another phone first), it's kept as a **conflict** for a supervisor to review. The officer's home screen says so.
+
+## Reviewing conflicts (supervisors)
+
+**Review conflicts** on the home screen lists the records the server couldn't accept, with signal (they are on the server). Each one shows, side by side, the record as made on the phone (items, lots, who collected, photos and signatures) and what the server already holds for that farmer on that day. The supervisor chooses one:
+
+- **Record as missing stock:** the goods are lost to the programme. They are recorded as missing stock on that day, against the officer. Only while the day is open; once it is closed, the loss belongs in the closing count.
+- **Goods taken back:** the extra goods were returned.
+- **Reviewed, nothing to record:** checked and explained, for example because the officer already recorded the loss before closing.
+
+Notes are required and kept for the audit. **The person whose record it is can't resolve it**: another supervisor must.
+
+## Design
+
+The app is built for officers outdoors, often in bright sun, with a queue waiting, on low-cost Android phones:
+
+- **One main action per screen**, in a bar at the bottom within thumb reach. When it can't be used yet, the bar says what is still needed.
+- **High contrast** on a warm paper background, large type (17 px base), a single deep green kept for the main action, and status always as text with an icon, never colour alone.
+- **Numbered steps** on the handover screen (who, items, proof) that tick when done.
+- **Short motion** only to show a change of screen or a completed step; none when the phone asks for reduced motion.
+- **System fonts and drawn icons:** nothing to download, so it works offline. The design tokens are at the top of `app.css`.
 
 ## Limits to know
 
@@ -82,7 +102,8 @@ The server must use **HTTPS**. Phones only allow the camera, and the app's offli
 |---|---|
 | `index.html`, `app.css`, `manifest.webmanifest`, `icons/` | The app shell |
 | `sw.js` | Service worker: keeps the app usable offline |
-| `js/main.js` | Screens: sign-in, home, distribution list, handover, not delivered, receipt |
+| `js/main.js` | Screens: sign-in, home, distribution day, handover, not delivered, receipt, opening and closing counts, damaged or missing stock, conflict review |
+| `js/ui.js` | The component kit: screen frame and action bar, buttons, pills, notices, steps, icons |
 | `js/db.js` | Storage on the phone (IndexedDB) |
 | `js/api.js` | Calls to the Fleetbase API |
 | `js/card.js` | Offline card checks (the same HMAC check as the server) and the ID last-4 check |
@@ -96,4 +117,4 @@ No build step: the files are served as they are.
 
 ## Tests
 
-`server/tests/FieldApp/run.sh` runs the full offline flow in headless Chromium against the real server code: two phones, a camera scan, offline saving, sync and a conflict. See `server/tests/FieldApp/README.md`.
+`server/tests/FieldApp/run.sh` runs the full offline flow in headless Chromium against the real server code: two phones, a camera scan, offline saving, sync, a conflict and its review by a supervisor. See `server/tests/FieldApp/README.md`.

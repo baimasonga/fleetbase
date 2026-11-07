@@ -7,7 +7,7 @@ Design documents (in this repository):
 - [`docs/proof-of-delivery/AGRI-INPUTS.md`](../../docs/proof-of-delivery/AGRI-INPUTS.md): the agricultural inputs profile
 - [`docs/proof-of-delivery/REPORTING-AUDIT.md`](../../docs/proof-of-delivery/REPORTING-AUDIT.md): reporting and audit rules
 
-## What's built (v0.5.0)
+## What's built (v0.6.0)
 
 | Area | Design ref | Status |
 |---|---|---|
@@ -29,11 +29,12 @@ Design documents (in this repository):
 | **Door-to-door routes**: handovers at the household (200 m check), failed attempts with reasons, reassignment to a distribution point after the maximum attempts, moved/deceased sent to registry review | AGRI §3.2 | Done |
 | **Offline field app** at `/pod-field/`: an installable web app for Android (no app store). It downloads a distribution on depot Wi-Fi; checks cards offline (camera QR or typed code); records handovers with identity levels, quantities, lots, photos, signatures or marks, witnesses and the pesticide safety briefing; records failed door-to-door visits; and syncs by itself when there's signal. See [`field-app/README.md`](field-app/README.md). | DESIGN §6.6, AGRI §7.2, §8, §13 | Done |
 | **Opening and closing the day from the phone, offline**: a witnessed opening count (other phones join it), damaged or missing stock, and a witnessed closing count. On the server, handovers from joined phones wait for the opening, and a closing that doesn't balance yet waits for the other phones or a discrepancy, then goes through by itself. | AGRI §11 | Done |
+| **Supervisor review of sync conflicts**, in the field app (**Review conflicts**) and through the API: the record as made on the phone (lines, photos, signatures) next to what the server already holds; the supervisor records it as missing stock (only while the day is open; afterwards the loss belongs in the closing), goods taken back, or reviewed. Notes are required, and whoever made the record can't resolve it. | DESIGN §6.6.7, REPORTING §7 | Done |
 | **Field sync API**: offline bundle, batch sync processed once each in capture order, conflicts kept for review, photo and signature uploads checked against their SHA-256, `late_sync` and `clock_ahead` flags | DESIGN §6.6 | Done |
 | **Closing and the day report**: witnessed closing count reconciled per item and lot (refused until every unit is accounted for), leftover stock returned to the site, totals by sex and age band, report as JSON or PDF in the country's local time, sealed with a hash | AGRI §11, REPORTING R-02 | Done |
 | **Stock reconciliation** per sku and lot | AGRI §11 | Done (engine) |
 
-Not built yet, in the order of the delivery plan: a console screen to resolve sync conflicts, registration photos, cold chain readings, the audit rules engine and verification sampling, programme reports, role-based permissions, and the console screens. The console UI (Ember engine) isn't started; everything above is available through the API.
+Not built yet, in the order of the delivery plan: registration photos, cold chain readings, the audit rules engine and verification sampling, programme reports, role-based permissions, and the console screens. The console UI (Ember engine) isn't started; everything above is available through the API.
 
 ## Install (own server)
 
@@ -120,6 +121,10 @@ The extension lives in `packages/pod` of this repository.
 | POST | `field/media` | Multipart `file`, `client_media_id`, `sha256`, `kind` |
 | GET | `events/{id}/media-status` | Photos and signatures expected, uploaded and missing |
 | GET | `events/{id}/conflicts` | Records made offline that the server could not accept |
+| GET | `conflicts` | Sync conflicts for review, newest first; `?status=open` (default) \| `resolved` \| `all` |
+| GET | `conflicts/{id}` | One conflict: the record as made on the phone, its photos and signatures (uploaded or not), what the server already holds, and the resolutions that apply now (`options`) |
+| POST | `conflicts/{id}/resolve` | `{resolution: written_off \| recovered \| reviewed, notes}`; notes of at least a sentence. `written_off` records the lines as missing stock against the officer, only while the day is open. The person whose record it is can't resolve it |
+| GET | `media/{client_media_id}` | A photo or signature sent from a phone (the company's own only) |
 
 All requests are scoped to the signed-in user's company.
 

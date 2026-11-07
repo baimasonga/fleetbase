@@ -1,33 +1,38 @@
 // Field Distribution: offline handovers of agricultural inputs.
-// AGRI-INPUTS.md §7.2 (identity), §8 (proof), §13 (offline); DESIGN.md §6.6.
+// AGRI-INPUTS.md §7.2 (identity), §8 (proof), §11 (opening and closing), §13 (offline); DESIGN.md §6.6.
+//
+// Design (see app.css): one main action per screen, at the bottom within thumb
+// reach; back always top left; progress visible; every action answered.
 
 import * as db from './db.js';
-import { api, ApiError, OfflineError } from './api.js';
+import { api, apiBlob, OfflineError } from './api.js';
 import { checkCard, idLast4Matches } from './card.js';
 import { buildPolicy, describe, evaluate, identityLevel } from './policy.js';
 import { compressPhoto, SignaturePad } from './media.js';
 import { scan } from './scanner.js';
 import { onSyncChange, status as syncStatus, syncNow, isSyncing } from './sync.js';
-import { h, mount, number, plural, setTitle, sexLabel, time, toast } from './ui.js';
+import {
+  actionBar, button, clock, field, h, hideToast, icon, initFrame, initials, notice, number, paintProgress,
+  pill, plural, progress, screen, sexLabel, step, stillNeeded, time, toast,
+} from './ui.js';
 
 // A card scanned or typed, kept in memory only (never in the URL or history).
 let scanned = null;
 
 const FAILURE_LABELS = {
-  farmer_absent: 'Farmer not at home',
-  household_moved: 'Household has moved',
-  farmer_deceased: 'Farmer has died',
-  refused: 'Refused the inputs',
-  wrong_village: 'Wrong village',
-  road_inaccessible: 'Road impassable',
-  security_issue: 'Unsafe to visit',
-  already_received: 'Says already received',
-  other: 'Other reason',
+  farmer_absent: 'Farmer not at home', household_moved: 'Household has moved', farmer_deceased: 'Farmer has died',
+  refused: 'Refused the inputs', wrong_village: 'Wrong village', road_inaccessible: 'Road impassable',
+  security_issue: 'Unsafe to visit', already_received: 'Says already received', other: 'Other reason',
 };
 
 const WITNESS_ROLE_LABELS = {
   chief: 'Chief', section_chief: 'Section chief', group_leader: 'Group leader', extension_officer: 'Extension officer',
   councillor: 'Councillor', community_leader: 'Community leader', other: 'Other',
+};
+
+const DISCREPANCY_REASONS = {
+  torn_bag: 'Torn bag', damaged: 'Damaged', wet: 'Wet or spoilt', spill_leak: 'Spilled or leaking', expired: 'Expired',
+  theft: 'Stolen', count_error: 'Counting error', counterfeit_suspected: 'Looks fake or relabelled', other: 'Other',
 };
 
 // ---------------------------------------------------------------------------
@@ -39,6 +44,7 @@ function go(route) {
 }
 
 async function render() {
+  hideToastOnNavigate();
   const route = location.hash.replace(/^#/, '') || '/';
   const token = await db.setting('token');
   if (!token && route !== '/login') return go('#/login');
@@ -46,17 +52,35 @@ async function render() {
   const parts = route.split('/').filter(Boolean);
   try {
     if (parts[0] === 'login') return renderLogin();
-    if (parts[0] === 'event' && parts[1]) return renderEvent(parts[1]);
-    if (parts[0] === 'handover' && parts[1] && parts[2]) return renderHandover(parts[1], parts[2]);
-    if (parts[0] === 'attempt' && parts[1] && parts[2]) return renderAttempt(parts[1], parts[2]);
-    if (parts[0] === 'receipt' && parts[1]) return renderReceipt(parts[1]);
-    if (parts[0] === 'open' && parts[1]) return renderCount(parts[1], 'open');
-    if (parts[0] === 'close' && parts[1]) return renderCount(parts[1], 'close');
-    if (parts[0] === 'discrepancy' && parts[1]) return renderDiscrepancy(parts[1]);
-    return renderHome();
+    if (parts[0] === 'event' && parts[1]) return await renderEvent(parts[1]);
+    if (parts[0] === 'handover' && parts[1] && parts[2]) return await renderHandover(parts[1], parts[2]);
+    if (parts[0] === 'attempt' && parts[1] && parts[2]) return await renderAttempt(parts[1], parts[2]);
+    if (parts[0] === 'receipt' && parts[1]) return await renderReceipt(parts[1]);
+    if (parts[0] === 'open' && parts[1]) return await renderCount(parts[1], 'open');
+    if (parts[0] === 'close' && parts[1]) return await renderCount(parts[1], 'close');
+    if (parts[0] === 'discrepancy' && parts[1]) return await renderDiscrepancy(parts[1]);
+    if (parts[0] === 'review' && parts[1] && parts[1] !== 'resolved') return await renderConflict(parts[1]);
+    if (parts[0] === 'review') return await renderReview(parts[1] || 'open');
+    return await renderHome();
   } catch (error) {
-    mount(h('div', { class: 'notice bad' }, error.message || 'Something went wrong.'), h('button', { onclick: () => go('#/') }, 'Home'));
+    screen({ title: 'Something went wrong', back: '#/' },
+      notice('bad', error.message || 'Something went wrong.'),
+      button('Home', { variant: 'secondary', iconName: 'home', block: true, onClick: () => go('#/') }));
   }
+}
+
+let lastRoute = null;
+function hideToastOnNavigate() {
+  // A message about the previous screen shouldn't linger over the next one,
+  // except right after saving (the toast is shown after navigating there).
+  if (lastRoute !== null && lastRoute !== location.hash && !toastSticky) hideToast();
+  toastSticky = false;
+  lastRoute = location.hash;
+}
+let toastSticky = false;
+function toastAfterNavigate(message, ms) {
+  toastSticky = true;
+  setTimeout(() => toast(message, ms), 0);
 }
 
 async function updateNet() {
@@ -64,12 +88,14 @@ async function updateNet() {
   const s = await syncStatus();
   const waiting = s.pending + s.mediaPending;
   el.classList.toggle('offline', !navigator.onLine);
+  el.classList.toggle('syncing', isSyncing());
   el.textContent = (navigator.onLine ? (isSyncing() ? 'Syncing…' : 'Online') : 'Offline') + (waiting ? ` · ${waiting} to send` : '');
 }
 
+initFrame();
 window.addEventListener('hashchange', render);
 window.addEventListener('online', () => { updateNet(); syncNow(); });
-window.addEventListener('offline', updateNet);
+window.addEventListener('offline', () => { updateNet(); if ((location.hash || '#/') === '#/') render(); });
 onSyncChange(() => {
   updateNet();
   // The home screen shows sync results; keep it current. (Other screens may have
@@ -91,11 +117,10 @@ if (navigator.onLine) syncNow();
 // Sign in
 
 function renderLogin() {
-  setTitle('Field Distribution');
-  const error = h('div', { class: 'notice bad', hidden: true });
-  const identity = h('input', { type: 'text', id: 'identity', autocomplete: 'username', inputmode: 'email', required: true });
-  const password = h('input', { type: 'password', id: 'password', autocomplete: 'current-password', required: true });
-  const submit = h('button', { type: 'submit', class: 'primary block' }, 'Sign in');
+  const error = h('div', { hidden: true });
+  const identity = h('input', { type: 'text', autocomplete: 'username', inputmode: 'email', required: true, autocapitalize: 'off', spellcheck: 'false' });
+  const password = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+  const submit = button('Sign in', { variant: 'primary', type: 'submit', block: true });
 
   const form = h('form', {
     class: 'card stack',
@@ -103,6 +128,7 @@ function renderLogin() {
       e.preventDefault();
       error.hidden = true;
       submit.disabled = true;
+      submit.classList.add('busy');
       try {
         const data = await api('auth/login', { method: 'POST', json: { identity: identity.value.trim(), password: password.value }, auth: false });
         if (data && data.twoFaSession) {
@@ -114,95 +140,125 @@ function renderLogin() {
         await db.setSetting('auth_expired', false);
         go('#/');
       } catch (err) {
-        error.textContent = err instanceof OfflineError ? 'No connection. Sign in once with signal (for example on depot Wi-Fi).' : err.message;
+        error.replaceChildren(notice('bad', err instanceof OfflineError ? 'No connection. Sign in once with signal, for example on the depot Wi-Fi.' : err.message));
         error.hidden = false;
       } finally {
         submit.disabled = false;
+        submit.classList.remove('busy');
       }
     },
   },
-  h('h1', {}, 'Sign in'),
-  h('p', { class: 'muted' }, 'Use your Fleetbase account. You only need signal to sign in and to download a distribution.'),
-  h('label', { for: 'identity' }, 'Email or phone'), identity,
-  h('label', { for: 'password' }, 'Password'), password,
+  field('Email or phone', identity),
+  field('Password', password),
   error, submit);
 
-  mount(form);
+  screen({ title: 'Field Distribution' },
+    h('div', { class: 'brand' },
+      h('span', { class: 'brand-mark' }, icon('sack', 36)),
+      h('h1', {}, 'Hand over inputs, with or without signal.'),
+      h('p', { class: 'muted' }, 'Sign in with your Fleetbase account. You need signal only to sign in and to download a distribution.')),
+    form);
   identity.focus();
 }
 
 // ---------------------------------------------------------------------------
-// Home: sync status, distributions on this phone, downloads
+// Home: sync status, your distributions, downloads
 
 async function renderHome() {
-  setTitle('Field Distribution');
   const s = await syncStatus();
   const bundles = await db.all('bundles');
   const outbox = await db.all('outbox');
   const user = await db.setting('identity');
   const expired = await db.setting('auth_expired');
+  const waiting = s.pending + s.mediaPending;
+
+  // The sync state, said plainly.
+  let state;
+  if (!navigator.onLine) {
+    state = { tone: 'warn', iconName: 'cloudOff', title: waiting ? `${plural(waiting, 'item')} saved on this phone` : 'Offline', text: 'Everything you record is kept on this phone and sent when there is signal.' };
+  } else if (waiting) {
+    state = { tone: 'info', iconName: 'sync', title: `${plural(s.pending, 'record')} and ${plural(s.mediaPending, 'photo')} to send`, text: s.lastError ? `Last try: ${s.lastError}` : 'Sending by itself while there is signal.' };
+  } else {
+    state = { tone: 'ok', iconName: 'check', title: 'Everything is sent', text: s.lastSync ? `Last sync ${time(s.lastSync)}` : 'Nothing to send yet.' };
+  }
 
   const syncCard = h('section', { class: 'card' },
-    h('div', { class: 'row between' },
-      h('strong', {}, s.pending || s.mediaPending ? `${plural(s.pending, 'record')} and ${plural(s.mediaPending, 'photo')} to send` : 'Everything is sent'),
-      h('button', { type: 'button', onclick: async (e) => { e.target.disabled = true; const r = await syncNow(); toast(r.skipped === 'offline' ? 'No signal. Records are safe on this phone.' : r.error ? `Sync stopped: ${r.error}` : `Sent ${r.sent} records and ${r.media} photos.`); render(); } }, 'Sync now')),
-    h('p', { class: 'small muted' }, s.lastSync ? `Last sync ${time(s.lastSync)}` : 'Not synced yet', s.lastError ? ` · ${s.lastError}` : ''),
-    expired ? h('div', { class: 'notice bad' }, 'Your sign-in has expired. Sign in again to send your records (they are safe on this phone).', h('div', {}, h('button', { type: 'button', onclick: () => go('#/login') }, 'Sign in'))) : null,
-    s.conflicts.length ? h('div', { class: 'notice bad' },
+    h('div', { class: 'status-card' },
+      h('span', { class: `status-icon ${state.tone}` }, icon(state.iconName, 24)),
+      h('div', { class: 'grow' }, h('h2', {}, state.title), h('p', { class: 'muted small' }, state.text)),
+      navigator.onLine ? button('Sync now', { variant: 'secondary', iconName: 'sync', onClick: async (e) => {
+        const b = e.currentTarget;
+        b.disabled = true;
+        const r = await syncNow();
+        toast(r.skipped === 'offline' ? 'No signal. Records are safe on this phone.' : r.error ? `Sync stopped: ${r.error}` : `Sent ${plural(r.sent, 'record')} and ${plural(r.media, 'photo')}.`);
+        render();
+      } }) : null),
+    expired ? notice('bad', 'Your sign-in has expired. Sign in again to send your records. They are safe on this phone.', button('Sign in', { variant: 'secondary', onClick: () => go('#/login') })) : null,
+    s.conflicts.length ? notice('bad',
       h('strong', {}, `${plural(s.conflicts.length, 'record')} ${s.conflicts.length === 1 ? 'needs' : 'need'} a supervisor's review`),
       h('ul', {}, s.conflicts.map((c) => h('li', {}, `${c.label || c.payload.client_handover_id}: ${c.result?.message || ''}`)))) : null,
-    s.mediaFailed ? h('div', { class: 'notice' }, `${plural(s.mediaFailed, 'photo')} could not be uploaded. Keep the phone; a supervisor can help.`) : null,
-    waitingNotices(outbox),
-  );
+    s.mediaFailed ? notice('warn', `${plural(s.mediaFailed, 'photo')} could not be uploaded. Keep the phone; a supervisor can help.`) : null,
+    waitingNotices(outbox));
 
-  const onPhone = h('section', {},
-    h('h2', {}, 'On this phone'),
-    bundles.length ? h('ul', { class: 'list card' }, bundles.map((b) => {
+  const yours = bundles.length
+    ? bundles.map((b) => {
       const assigned = b.beneficiaries.length;
       const served = b.beneficiaries.filter(servedLocally).length;
       const pendingHere = outbox.filter((r) => r.event === b.event.id && r.status === 'pending').length;
-      return h('li', {},
-        h('div', { class: 'row between wrap item-row' },
-          h('div', { class: 'grow' },
-            h('strong', {}, b.event.name),
-            h('div', { class: 'small muted' }, `${b.event.kind === 'route' ? 'Door-to-door' : b.site.name} · ${served}/${assigned} served · downloaded ${time(b.downloaded_at)}`),
-            dayChip(b)),
-          h('div', { class: 'row' },
-            h('button', { type: 'button', class: 'primary', onclick: () => go(`#/event/${b.event.id}`) }, 'Open'),
-            h('button', { type: 'button', disabled: pendingHere > 0 || !navigator.onLine, title: pendingHere ? 'Send this distribution\'s records first' : '', onclick: () => download(b.event.id) }, 'Refresh'))));
-    })) : h('p', { class: 'muted' }, 'Nothing downloaded yet.'));
+      return h('article', { class: 'card dist' },
+        h('button', { type: 'button', class: 'dist-open', 'aria-label': `${b.event.name}: ${served} of ${assigned} served`, onclick: () => go(`#/event/${b.event.id}`) },
+          h('div', { class: 'row between top' },
+            h('div', { class: 'grow' }, h('h2', {}, b.event.name), h('p', { class: 'muted small' }, `${b.event.kind === 'route' ? 'Door-to-door route' : b.site.name}${b.event.scheduled_date ? ' · ' + b.event.scheduled_date : ''}`)),
+            icon('chevron', 24)),
+          h('div', { class: 'row between wrap' }, dayPill(b) || h('span', {}), h('span', { class: 'small' }, h('strong', {}, `${served}`), ` of ${assigned} served`)),
+          progress(served, assigned)),
+        h('div', { class: 'dist-foot row between' },
+          h('span', { class: 'small muted' }, pendingHere ? `${plural(pendingHere, 'record')} to send first` : `Downloaded ${time(b.downloaded_at)}`),
+          button('Refresh', { variant: 'ghost', iconName: 'download', disabled: pendingHere > 0 || !navigator.onLine, onClick: () => download(b.event.id) })));
+    })
+    : [h('div', { class: 'card empty' }, icon('box', 32), h('p', {}, 'Nothing on this phone yet.'), h('p', { class: 'small' }, 'Download a distribution while on the depot Wi-Fi.'))];
 
-  const available = h('section', {}, h('h2', {}, 'Download for the field'));
+  const available = h('div', {});
   if (!navigator.onLine) {
     available.append(h('p', { class: 'muted' }, 'Connect to the depot Wi-Fi to download a distribution.'));
   } else {
-    available.append(h('p', { class: 'muted small' }, 'Loading…'));
+    available.append(h('p', { class: 'muted small' }, 'Looking for distributions…'));
     api('pod/field/events').then((data) => {
       const have = new Set(bundles.map((b) => b.event.id));
       const list = (data.events || []).filter((e) => !have.has(e.id));
-      available.lastChild.replaceWith(list.length ? h('ul', { class: 'list card' }, list.map((e) => h('li', {},
-        h('div', { class: 'row between wrap item-row' },
-          h('div', { class: 'grow' }, h('strong', {}, e.name), h('div', { class: 'small muted' }, `${e.programme?.name || ''} · ${e.kind === 'route' ? 'door-to-door' : e.site?.name || ''}${e.scheduled_date ? ' · ' + e.scheduled_date : ''}`)),
-          h('button', { type: 'button', class: 'primary', onclick: () => download(e.id) }, 'Download'))))) : h('p', { class: 'muted' }, 'No other open or planned distributions.'));
-    }).catch((err) => {
-      available.lastChild.replaceWith(h('p', { class: 'muted' }, err.message));
-    });
+      available.replaceChildren(list.length
+        ? h('ul', { class: 'list' }, list.map((e) => h('li', {},
+          h('div', { class: 'list-row' },
+            h('span', { class: 'avatar' }, icon(e.kind === 'route' ? 'flag' : 'box', 20)),
+            h('div', { class: 'grow' }, h('div', { class: 'row-title' }, e.name), h('div', { class: 'row-meta' }, `${e.programme?.name || ''}${e.scheduled_date ? ' · ' + e.scheduled_date : ''}`)),
+            button('Download', { variant: 'secondary', iconName: 'download', onClick: () => download(e.id) })))))
+        : h('p', { class: 'muted' }, 'No other open or planned distributions.'));
+    }).catch((err) => available.replaceChildren(h('p', { class: 'muted' }, err.message)));
   }
 
-  const footer = h('p', { class: 'small muted' }, `Signed in as ${user || ''}. `,
-    h('button', { type: 'button', class: 'danger', onclick: signOut }, 'Sign out'));
-
-  mount(syncCard, onPhone, available, footer);
+  screen({ title: 'Field Distribution' },
+    syncCard,
+    h('h2', { class: 'section-title' }, 'Your distributions'), yours,
+    h('h2', { class: 'section-title' }, 'Download for the field'), available,
+    h('h2', { class: 'section-title' }, 'Account'),
+    h('div', { class: 'card row between wrap' },
+      h('div', { class: 'row' }, h('span', { class: 'avatar' }, icon('user', 20)), h('span', { class: 'small' }, user || '')),
+      h('div', { class: 'row' },
+        button('Review conflicts', { variant: 'ghost', iconName: 'shield', onClick: () => go('#/review') }),
+        button('Sign out', { variant: 'ghost', iconName: 'logout', onClick: signOut }))));
+  paintProgress();
 }
 
 async function download(eventId) {
   try {
-    toast('Downloading…');
+    toast('Downloading…', 20000);
     const bundle = await api(`pod/events/${encodeURIComponent(eventId)}/bundle`, { timeout: 120000 });
+    const previous = await db.get('bundles', eventId);
     bundle.downloaded_at = new Date().toISOString();
+    if (previous?.local && bundle.event.status === 'planned') bundle.local = previous.local; // keep a join or opening not yet synced
     await db.put('bundles', bundle.event.id, bundle);
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-    toast(`Downloaded: ${bundle.beneficiaries.length} farmers. It works offline now.`);
+    toast(`Downloaded: ${plural(bundle.beneficiaries.length, 'farmer')}. It works offline now.`);
     render();
   } catch (err) {
     toast(err.message);
@@ -220,7 +276,44 @@ async function signOut() {
 }
 
 // ---------------------------------------------------------------------------
-// One distribution: find farmers, scan cards
+// The day state on this phone: planned, open, closing (closed here, waiting for
+// the server) or closed. Other phones "join" an opening instead of counting again.
+
+function dayState(bundle) {
+  const local = bundle.local || {};
+  if (bundle.event.status === 'closed') return 'closed';
+  if (local.closing) return 'closing';
+  if (bundle.event.status === 'open' || local.opened || local.joined) return 'open';
+  return 'planned';
+}
+
+function dayPill(bundle) {
+  const state = dayState(bundle);
+  if (state === 'planned') return pill('Not opened yet', 'warn', 'clock');
+  if (state === 'closing') return pill('Closed here, waiting to send', 'warn', 'sync');
+  if (state === 'closed') return pill('Closed', 'ok', 'check');
+  return null;
+}
+
+/** Pending records the server answered "not yet" for. */
+function waitingNotices(outbox) {
+  return outbox.filter((r) => r.status === 'pending' && r.result && ['deferred', 'unbalanced'].includes(r.result.status)).map((r) => {
+    if (r.result.status === 'deferred') {
+      return notice('info', `${r.label}: waiting for the day to be opened on the server (the opening phone has not synced yet). It will be sent again.`);
+    }
+    return notice('bad',
+      h('strong', {}, `${r.label}: the count does not balance yet.`),
+      h('ul', {}, (r.result.lines || []).map((l) => {
+        const v = Number(l.variance);
+        return h('li', {}, `${l.sku}${l.lot ? ` lot ${l.lot}` : ''}: ${v > 0 ? `${number(v)} fewer counted than recorded` : `${number(-v)} more counted than recorded`}`);
+      })),
+      h('p', { class: 'small' }, 'If other phones handed out from this stock, it will balance once they sync. Otherwise record what happened as damaged or missing stock; the closing is sent again by itself.'),
+      button('Damaged or missing stock', { variant: 'secondary', onClick: () => go(`#/discrepancy/${r.event}`) }));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// One distribution day: progress, farmers, cards
 
 function remainingOf(entitlement) {
   return Math.max(0, Number(entitlement.quantity) - Number(entitlement.collected));
@@ -234,10 +327,10 @@ function farmerStatus(b) {
   const remaining = b.entitlements.reduce((sum, e) => sum + remainingOf(e), 0);
   const collected = b.entitlements.some((e) => Number(e.collected) > 0);
   const failed = b.handovers.filter((x) => x.outcome === 'failed').length;
-  if (collected && remaining === 0) return h('span', { class: 'chip ok' }, 'Collected');
-  if (collected) return h('span', { class: 'chip warn' }, 'Part collected');
-  if (failed) return h('span', { class: 'chip warn' }, `Visited ${failed}×`);
-  return h('span', { class: 'chip' }, 'Not yet');
+  if (collected && remaining === 0) return pill('Collected', 'ok', 'check');
+  if (collected) return pill('Part collected', 'warn');
+  if (failed) return pill(`Visited ${failed}×`, 'warn');
+  return pill('Not yet', 'neutral');
 }
 
 async function loadBundle(eventId) {
@@ -248,148 +341,183 @@ async function loadBundle(eventId) {
 
 async function renderEvent(eventId) {
   const bundle = await loadBundle(eventId);
-  setTitle(bundle.event.name);
-
+  const state = dayState(bundle);
   const served = bundle.beneficiaries.filter(servedLocally).length;
   const assigned = bundle.beneficiaries.length;
-  const message = h('div', { class: 'notice bad', hidden: true });
+  const message = h('div', { hidden: true });
+
+  const showError = (text) => {
+    message.replaceChildren(notice('bad', text));
+    message.hidden = false;
+    message.scrollIntoView({ block: 'nearest' });
+  };
 
   const useCode = async (code) => {
     const result = await checkCard(code, bundle);
-    if (!result.valid) {
-      message.textContent = result.message;
-      message.hidden = false;
-      return;
-    }
+    if (!result.valid) return showError(result.message);
     scanned = { eventId, beneficiaryId: result.beneficiary.id, code: code.trim() };
     go(`#/handover/${eventId}/${result.beneficiary.id}`);
   };
 
-  const codeInput = h('input', { type: 'text', id: 'code', placeholder: 'FBP1.…', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false' });
-  const typed = h('form', { class: 'card', hidden: true, onsubmit: (e) => { e.preventDefault(); useCode(codeInput.value); } },
-    h('label', { for: 'code' }, 'Code printed under the QR'), codeInput,
-    h('button', { type: 'submit', class: 'primary block mt' }, 'Check card'));
+  const codeInput = h('input', { type: 'text', placeholder: 'FBP1.…', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false' });
+  const typed = h('form', { class: 'card stack', hidden: true, onsubmit: (e) => { e.preventDefault(); useCode(codeInput.value); } },
+    field('Code printed under the QR', codeInput, 'Type it exactly as printed, with the dots.'),
+    button('Check card', { variant: 'secondary', type: 'submit', block: true }));
 
-  const search = h('input', { type: 'search', placeholder: 'Search by name, village or ID', 'aria-label': 'Search farmers' });
-  const list = h('ul', { class: 'list card' });
+  const search = h('input', { type: 'search', placeholder: 'Name, village or ID', 'aria-label': 'Search farmers' });
+  const list = h('ul', { class: 'list' });
   const draw = () => {
     const q = search.value.trim().toLowerCase();
     const rows = bundle.beneficiaries
       .filter((b) => !q || [b.name, b.village, b.id, b.farmer_ref].some((v) => (v || '').toLowerCase().includes(q)))
       .sort((a, b) => Number(servedLocally(a)) - Number(servedLocally(b)) || a.name.localeCompare(b.name));
-    list.replaceChildren(...(rows.length ? rows.map((b) => h('li', {},
-      bundle.event.kind === 'route'
-        ? h('div', { class: 'row between wrap route-row' },
-          h('div', { class: 'grow' }, h('strong', {}, b.name), h('div', { class: 'small muted' }, [b.village, sexLabel(b.sex)].filter(Boolean).join(' · ')), farmerStatus(b)),
-          h('div', { class: 'row' },
-            h('button', { type: 'button', class: 'primary', onclick: () => { scanned = null; go(`#/handover/${eventId}/${b.id}`); } }, 'Deliver'),
-            h('button', { type: 'button', onclick: () => go(`#/attempt/${eventId}/${b.id}`) }, 'Not delivered')))
-        : h('button', { type: 'button', class: 'item', onclick: () => { scanned = null; go(`#/handover/${eventId}/${b.id}`); } },
-          h('span', { class: 'grow' }, h('strong', {}, b.name), h('br'), h('span', { class: 'small muted' }, [b.village, sexLabel(b.sex), b.farmer_ref].filter(Boolean).join(' · '))),
-          farmerStatus(b)))) : [h('li', { class: 'pad muted' }, 'No farmers match.')]));
+    list.replaceChildren(...(rows.length ? rows.map((b) => farmerRow(bundle, eventId, b, state)) : [h('li', { class: 'empty' }, 'No farmers match.')]));
   };
   search.addEventListener('input', draw);
   draw();
 
-  mount(
-    h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => go('#/') }, '‹ Home')),
-    dayActions(bundle, eventId),
-    h('div', { class: 'stats' },
-      h('div', { class: 'stat' }, h('b', {}, String(served)), 'served'),
-      h('div', { class: 'stat' }, h('b', {}, String(assigned - served)), 'to go'),
-      h('div', { class: 'stat' }, h('b', {}, String(assigned)), 'on list')),
-    h('div', { class: 'row mt' },
-      h('button', { type: 'button', class: 'primary grow', onclick: () => scan(useCode).catch((err) => { message.textContent = err.message; message.hidden = false; }) }, 'Scan card'),
-      h('button', { type: 'button', onclick: () => { typed.hidden = !typed.hidden; if (!typed.hidden) codeInput.focus(); } }, 'Type code')),
-    message, typed,
-    h('h2', {}, 'Farmers'), search, list,
-  );
+  const hero = h('section', { class: 'card' },
+    h('div', { class: 'hero' }, h('span', { class: 'hero-number' }, String(served)), h('span', { class: 'hero-label' }, `of ${assigned} farmers served`)),
+    progress(served, assigned),
+    h('div', { class: 'row wrap' }, dayPill(bundle), pill(`${assigned - served} to go`, 'neutral')));
+
+  let banner = null;
+  let actions = null;
+  if (state === 'planned') {
+    banner = notice('warn', h('strong', {}, 'The day has not been opened yet.'),
+      h('p', {}, 'Open it with a witnessed count of the stock here. If another phone at this distribution point already opened it, join instead. Do not count twice.'));
+    actions = actionBar(null,
+      button('Open the day', { variant: 'primary', iconName: 'open', onClick: () => go(`#/open/${eventId}`) }),
+      button('Join: opened on another phone', { variant: 'secondary', onClick: async () => {
+        bundle.local = { ...(bundle.local || {}), joined: true };
+        await db.put('bundles', eventId, bundle);
+        toastAfterNavigate('Joined. Your handovers will be accepted once the opening phone has synced.', 5000);
+        render();
+      } }));
+  } else if (state === 'closing') {
+    banner = notice('warn', h('p', {}, 'The day was closed on this phone. The closing count will be sent with the other records. If the office says it does not balance, record what happened.'),
+      button('Damaged or missing stock', { variant: 'secondary', onClick: () => go(`#/discrepancy/${eventId}`) }));
+  } else if (state === 'closed') {
+    banner = notice('ok', 'This day is closed.');
+  } else {
+    actions = actionBar(null,
+      button('Scan card', { variant: 'primary', iconName: 'scan', onClick: () => scan(useCode).catch((err) => showError(err.message)) }),
+      button('Type code', { variant: 'secondary', iconName: 'keyboard', onClick: () => { typed.hidden = !typed.hidden; if (!typed.hidden) codeInput.focus(); } }));
+  }
+
+  const endOfDay = state === 'open' ? [
+    h('h2', { class: 'section-title' }, 'During and at the end of the day'),
+    h('div', { class: 'card stack' },
+      button('Damaged or missing stock', { variant: 'secondary', iconName: 'box', block: true, onClick: () => go(`#/discrepancy/${eventId}`) }),
+      button('Close the day', { variant: 'danger', iconName: 'flag', block: true, onClick: () => go(`#/close/${eventId}`) }),
+      bundle.local?.joined && !bundle.local?.opened ? h('p', { class: 'hint' }, 'This phone joined the day. Usually the phone that opened it does the closing count.') : null),
+  ] : [];
+
+  screen({ title: bundle.event.name, subtitle: bundle.event.kind === 'route' ? 'Door-to-door route' : bundle.site.name, back: '#/', actions },
+    hero, banner, message, typed,
+    h('h2', { class: 'section-title' }, 'Farmers'),
+    h('div', { class: 'search' }, icon('search', 20), search),
+    list, endOfDay);
+  paintProgress();
+}
+
+function farmerRow(bundle, eventId, b, state) {
+  const done = b.entitlements.length > 0 && b.entitlements.every((e) => remainingOf(e) === 0);
+  const meta = [b.village, sexLabel(b.sex), b.farmer_ref].filter(Boolean).join(' · ');
+  if (bundle.event.kind === 'route' && state === 'open') {
+    return h('li', {},
+      h('div', { class: 'list-row' },
+        h('span', { class: `avatar${done ? ' ok' : ''}` }, done ? icon('check', 18) : initials(b.name)),
+        h('div', { class: 'grow' }, h('div', { class: 'row-title' }, b.name), h('div', { class: 'row-meta' }, meta), farmerStatus(b))),
+      h('div', { class: 'row', style: null },
+        button('Deliver', { variant: 'secondary', onClick: () => { scanned = null; go(`#/handover/${eventId}/${b.id}`); } }),
+        button('Not delivered', { variant: 'ghost', onClick: () => go(`#/attempt/${eventId}/${b.id}`) })));
+  }
+  return h('li', {},
+    h('button', { type: 'button', class: 'list-row', onclick: () => { scanned = null; go(`#/handover/${eventId}/${b.id}`); } },
+      h('span', { class: `avatar${done ? ' ok' : ''}` }, done ? icon('check', 18) : initials(b.name)),
+      h('span', { class: 'grow' }, h('span', { class: 'row-title' }, b.name), h('br'), h('span', { class: 'row-meta' }, meta)),
+      farmerStatus(b)));
 }
 
 // ---------------------------------------------------------------------------
-// Handover
+// Handover: three steps, then record
 
 async function renderHandover(eventId, beneficiaryId) {
   const bundle = await loadBundle(eventId);
   const farmer = bundle.beneficiaries.find((b) => b.id === beneficiaryId);
   if (!farmer) throw new Error('This farmer is not on this distribution\'s list.');
-  setTitle(farmer.name);
 
   const items = Object.fromEntries(bundle.items.map((i) => [i.sku, i]));
   const recalled = new Set((bundle.programme.recalled_lots || []).map((r) => `${r.sku}|${r.lot}`));
   const today = new Date().toISOString().slice(0, 10);
   const card = scanned && scanned.eventId === eventId && scanned.beneficiaryId === beneficiaryId ? scanned : null;
-  const open = dayState(bundle) === 'open';
+  const back = `#/event/${eventId}`;
 
-  const f = {
-    faceMatched: false, idLast4: '', idMatched: false, witnessConfirmed: false,
-    receivedBy: 'self', recipient: '', photos: [], sigType: 'signature', witnessName: '', witnessRole: 'chief', safety: false,
-    lines: {},
-  };
-
-  const back = h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => go(`#/event/${eventId}`) }, '‹ List'));
   const header = h('section', { class: 'card' },
-    h('div', { class: 'row between' }, h('strong', { class: 'big' }, farmer.name), card ? h('span', { class: 'chip ok' }, 'Card checked') : h('span', { class: 'chip warn' }, 'No card')),
-    h('div', { class: 'muted' }, [sexLabel(farmer.sex), farmer.birth_year ? `born ${farmer.birth_year}` : '', farmer.village, farmer.farmer_ref].filter(Boolean).join(' · ')),
-    h('div', { class: 'mono muted' }, farmer.id));
+    h('div', { class: 'row top' },
+      h('span', { class: 'avatar' }, initials(farmer.name)),
+      h('div', { class: 'grow' },
+        h('h1', {}, farmer.name),
+        h('p', { class: 'muted' }, [sexLabel(farmer.sex), farmer.birth_year ? `born ${farmer.birth_year}` : '', farmer.village, farmer.farmer_ref].filter(Boolean).join(' · ')),
+        card ? pill('Card checked', 'ok', 'check') : pill('No card', 'warn'))));
 
   const open_ = farmer.entitlements.filter((e) => remainingOf(e) > 0 && ['open', 'partially_collected'].includes(e.status));
   if (!open_.length) {
-    mount(back, header, h('div', { class: 'notice ok' }, 'This farmer has collected everything for this distribution.'));
+    screen({ title: farmer.name, back }, header, notice('ok', 'This farmer has collected everything for this distribution.'));
     return;
   }
-  if (!open) {
-    mount(back, header, h('div', { class: 'notice' }, dayState(bundle) === 'planned' ? 'The day has not been opened yet, so nothing can be handed over.' : 'The day has been closed on this phone, so nothing more can be handed over.'));
+  if (dayState(bundle) !== 'open') {
+    screen({ title: farmer.name, back }, header, notice('warn', dayState(bundle) === 'planned' ? 'The day has not been opened yet, so nothing can be handed over.' : 'The day has been closed on this phone, so nothing more can be handed over.'));
     return;
   }
 
-  // --- Who is collecting -------------------------------------------------------
-  const identity = h('section', { class: 'card' }, h('h2', { class: 'first' }, 'Who is the farmer?'));
-  const idResult = h('span', { class: 'small' });
+  const f = { faceMatched: false, idLast4: '', idMatched: false, witnessConfirmed: false, receivedBy: 'self', recipient: '', photos: [], sigType: 'signature', witnessName: '', witnessRole: 'chief', safety: false, lines: {} };
+
+  // --- Step 1: who --------------------------------------------------------------
+  const idResult = h('span', {});
+  const who = [];
   if (card) {
-    identity.append(
+    who.push(
       h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: (e) => { f.faceMatched = e.target.checked; update(); } }), h('span', {}, 'I have checked this is the farmer named on the card.')),
-      h('label', { for: 'last4' }, 'Last 4 characters of their ID (optional)'),
-      h('div', { class: 'row' },
-        h('input', { type: 'text', id: 'last4', maxlength: '4', inputmode: 'text', autocomplete: 'off', class: 'short', oninput: async (e) => {
-          f.idLast4 = e.target.value;
-          f.idMatched = await idLast4Matches(farmer, f.idLast4);
-          idResult.textContent = f.idLast4.length === 4 ? (f.idMatched ? '✓ matches' : '✗ does not match') : '';
-          idResult.className = f.idMatched ? 'chip ok' : (f.idLast4.length === 4 ? 'chip bad' : 'small');
-          update();
-        } }), idResult));
+      field('Last 4 characters of their ID (optional)', h('input', { type: 'text', maxlength: '4', autocomplete: 'off', autocapitalize: 'characters', oninput: async (e) => {
+        f.idLast4 = e.target.value;
+        f.idMatched = await idLast4Matches(farmer, f.idLast4);
+        idResult.replaceChildren(f.idLast4.length === 4 ? (f.idMatched ? pill('ID matches', 'ok', 'check') : pill('ID does not match', 'bad', 'x')) : '');
+        update();
+      } }), 'Raises the identity check to the strongest level.'), idResult);
   } else {
-    identity.append(
-      h('p', { class: 'muted small' }, 'No card: take a photo of the farmer (below) and have a chief, group leader or extension officer confirm who they are and sign.'),
+    who.push(
+      notice('info', 'No card: take a photo of the farmer (step 3) and have a chief, group leader or extension officer confirm who they are and sign.'),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', onchange: (e) => { f.witnessConfirmed = e.target.checked; update(); } }), h('span', {}, 'A witness confirms this is the farmer.')));
   }
-
-  const recipientInput = h('input', { type: 'text', id: 'recipient', placeholder: 'Full name', hidden: true, oninput: (e) => { f.recipient = e.target.value; update(); } });
+  const recipientInput = h('input', { type: 'text', placeholder: 'Full name', oninput: (e) => { f.recipient = e.target.value; update(); } });
+  const recipientField = field('Name of the person collecting', recipientInput);
+  recipientField.hidden = true;
   const seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Collected by' });
   for (const [value, label] of [['self', 'Farmer'], ['household_member', 'Household'], ['proxy', 'Proxy']]) {
     seg.append(h('button', { type: 'button', 'aria-pressed': String(value === 'self'), onclick: (e) => {
       f.receivedBy = value;
       seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget)));
-      recipientInput.hidden = value === 'self';
+      recipientField.hidden = value === 'self';
       update();
     } }, label));
   }
-  identity.append(h('label', {}, 'Collected by'), seg, recipientInput);
+  const step1 = step(1, 'Who is collecting', who, h('div', {}, h('span', { class: 'label' }, 'Collected by'), seg), recipientField);
 
-  // --- Items ---------------------------------------------------------------------
-  const itemsSection = h('section', { class: 'card' }, h('h2', { class: 'first' }, 'Items'));
+  // --- Step 2: items --------------------------------------------------------------
+  const itemRows = [];
   for (const e of open_) {
     const item = items[e.sku] || { name: e.sku, restricted: false };
     const remaining = remainingOf(e);
     const lots = bundle.stock.filter((s) => s.sku === e.sku && Number(s.quantity) > 0);
     const usable = lots.filter((s) => !recalled.has(`${s.sku}|${s.lot}`) && !(s.expiry && s.expiry < today));
     const blocked = item.restricted && !farmer.trained;
-
     const line = { qty: blocked || !usable.length ? 0 : remaining, lot: usable[0]?.lot ?? null, remaining, unit: e.unit, restricted: !!item.restricted };
     f.lines[e.sku] = line;
 
     const out = h('output', {}, number(line.qty));
-    const step = (delta) => {
+    const stepQty = (delta) => {
       line.qty = Math.min(remaining, Math.max(0, line.qty + delta));
       out.textContent = number(line.qty);
       update();
@@ -397,19 +525,20 @@ async function renderHandover(eventId, beneficiaryId) {
     const lotSelect = h('select', { 'aria-label': `Lot for ${item.name}`, onchange: (ev) => { line.lot = ev.target.value; update(); } },
       lots.map((s) => {
         const why = recalled.has(`${s.sku}|${s.lot}`) ? ' (recalled: do not use)' : s.expiry && s.expiry < today ? ` (expired ${s.expiry})` : '';
-        return h('option', { value: s.lot, disabled: !!why, selected: s.lot === line.lot }, `${s.lot || 'no lot'} · ${number(s.quantity)} left${why}`);
+        return h('option', { value: s.lot, disabled: !!why, selected: s.lot === line.lot }, `Lot ${s.lot || '–'} · ${number(s.quantity)} left${why}`);
       }));
 
-    itemsSection.append(h('div', { class: 'line' },
-      h('div', { class: 'row between' }, h('strong', {}, item.name), h('span', { class: 'small muted' }, `${plural(remaining, e.unit)} to collect`)),
-      blocked ? h('div', { class: 'notice bad' }, 'Restricted product: this farmer has no recorded safety training, so it cannot be handed over.')
-        : !usable.length ? h('div', { class: 'notice bad' }, 'None of this item is usable in stock here.')
-          : h('div', { class: 'row wrap mt-small' },
-            h('div', { class: 'stepper' }, h('button', { type: 'button', 'aria-label': 'Less', onclick: () => step(-1) }, '−'), out, h('button', { type: 'button', 'aria-label': 'More', onclick: () => step(1) }, '+')),
-            h('div', { class: 'grow' }, lotSelect))));
+    itemRows.push(h('div', { class: 'line-item' },
+      h('div', { class: 'row between top' }, h('h3', {}, item.name), h('span', { class: 'small muted' }, `${plural(remaining, e.unit)} to collect`)),
+      blocked ? notice('bad', 'Restricted product: this farmer has no recorded safety training, so it cannot be handed over.')
+        : !usable.length ? notice('bad', 'None of this item is usable in stock here.')
+          : h('div', { class: 'line-controls' },
+            h('div', { class: 'stepper' }, h('button', { type: 'button', 'aria-label': `One less: ${item.name}`, onclick: () => stepQty(-1) }, icon('minus', 20)), out, h('button', { type: 'button', 'aria-label': `One more: ${item.name}`, onclick: () => stepQty(1) }, icon('plus', 20))),
+            lotSelect)));
   }
+  const step2 = step(2, 'Items', itemRows);
 
-  // --- Proof -----------------------------------------------------------------------
+  // --- Step 3: proof --------------------------------------------------------------
   const thumbs = h('div', { class: 'thumbs' });
   const photoInput = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true, onchange: async (e) => {
     const file = e.target.files[0];
@@ -437,30 +566,29 @@ async function renderHandover(eventId, beneficiaryId) {
   }
 
   const witnessCanvas = h('canvas', { class: 'pad', 'aria-label': 'Witness signature' });
-  const witnessBox = h('div', { hidden: true },
-    h('h2', {}, 'Witness'),
-    h('label', { for: 'wname' }, 'Witness name'),
-    h('input', { type: 'text', id: 'wname', oninput: (e) => { f.witnessName = e.target.value; update(); } }),
-    h('label', { for: 'wrole' }, 'Role'),
-    h('select', { id: 'wrole', onchange: (e) => { f.witnessRole = e.target.value; } }, (bundle.witness_roles || Object.keys(WITNESS_ROLE_LABELS)).map((r) => h('option', { value: r }, WITNESS_ROLE_LABELS[r] || r))),
-    h('label', {}, 'Witness signs here'), witnessCanvas,
-    h('button', { type: 'button', onclick: () => witnessPad.clear() }, 'Clear'));
+  const witnessBox = h('div', { class: 'stack', hidden: true },
+    h('h3', {}, 'Witness'),
+    field('Witness name', h('input', { type: 'text', oninput: (e) => { f.witnessName = e.target.value; update(); } })),
+    field('Role', h('select', { onchange: (e) => { f.witnessRole = e.target.value; } }, (bundle.witness_roles || Object.keys(WITNESS_ROLE_LABELS)).map((r) => h('option', { value: r }, WITNESS_ROLE_LABELS[r] || r)))),
+    h('span', { class: 'label' }, 'Witness signs here'), h('div', { class: 'pad-wrap' }, witnessCanvas, h('span', { class: 'pad-hint' }, 'Sign here')),
+    button('Clear', { variant: 'ghost', onClick: () => witnessPad.clear() }));
 
   const safetyBox = h('label', { class: 'check', hidden: true },
     h('input', { type: 'checkbox', onchange: (e) => { f.safety = e.target.checked; update(); } }),
     h('span', {}, 'Safety briefing given: store away from children, food and water; use the right dose; wear the gloves and mask; do not reuse empty containers.'));
 
-  const proof = h('section', { class: 'card' },
-    h('h2', { class: 'first' }, 'Proof'),
-    h('button', { type: 'button', class: 'block', onclick: () => photoInput.click() }, 'Take photo of farmer with the inputs'), photoInput, thumbs,
-    h('label', {}, 'The person collecting'), sigSeg, sigCanvas,
-    h('button', { type: 'button', onclick: () => sigPad.clear() }, 'Clear'),
+  const step3 = step(3, 'Proof',
+    button('Take photo of farmer with the inputs', { variant: 'secondary', iconName: 'camera', block: true, onClick: () => photoInput.click() }), photoInput, thumbs,
+    h('span', { class: 'label' }, 'The person collecting'), sigSeg,
+    h('div', { class: 'pad-wrap' }, sigCanvas, h('span', { class: 'pad-hint' }, 'Sign or mark here')),
+    button('Clear', { variant: 'ghost', onClick: () => sigPad.clear() }),
     safetyBox, witnessBox);
 
-  const missingBox = h('div', { class: 'notice', role: 'status' });
-  const save = h('button', { type: 'button', class: 'primary block', disabled: true }, 'Record handover');
+  const status = h('div', {});
+  const save = button('Record handover', { variant: 'primary', disabled: true });
 
-  mount(back, header, identity, itemsSection, proof, h('div', { class: 'footer-actions' }, missingBox, save));
+  screen({ title: farmer.name, subtitle: bundle.event.name, back, actions: actionBar(status, save) },
+    header, step1.el, step2.el, step3.el);
 
   const sigPad = new SignaturePad(sigCanvas);
   const witnessPad = new SignaturePad(witnessCanvas);
@@ -490,21 +618,25 @@ async function renderHandover(eventId, beneficiaryId) {
     if (f.safety) evidence.push({ type: 'safety_ack' });
 
     const result = evaluate(policy, evidence, { lines: lines.map((l) => ({ id: l.sku, entitled: l.remaining })) });
+    const whoDone = !!level && (f.receivedBy === 'self' || f.recipient.trim() !== '') && !result.missing.some((m) => m.type === 'witness_signature' && card && !proxy);
     const problems = [];
-    if (!lines.length) problems.push('Choose at least one item to hand over');
     if (!level) problems.push(card ? 'Tick that you have checked this is the farmer' : 'Take a photo and have a witness confirm who the farmer is');
     if (f.receivedBy !== 'self' && !f.recipient.trim()) problems.push('Write the name of the person collecting');
+    if (!lines.length) problems.push('Choose at least one item to hand over');
     for (const m of result.missing) if (m.type !== 'beneficiary_id') problems.push(describe(m));
 
-    return { lines, level, restricted, proxy, ok: problems.length === 0, problems: [...new Set(problems)] };
+    return { lines, level, restricted, proxy, ok: problems.length === 0, problems: [...new Set(problems)], whoDone, proofDone: result.missing.every((m) => ['beneficiary_id', 'line_quantities', 'lot_scan'].includes(m.type)) };
   }
 
   function update() {
     const c = current();
     witnessBox.hidden = !(c.proxy || c.level === 'L1' || !card);
     safetyBox.hidden = !c.restricted;
-    missingBox.className = c.ok ? 'notice ok' : 'notice';
-    missingBox.replaceChildren(c.ok ? `Ready: identity ${c.level}.` : h('span', {}, h('strong', {}, 'Still needed: '), c.problems.join('; ') + '.'));
+    step1.setDone(c.whoDone);
+    step2.setDone(c.lines.length > 0);
+    step3.setDone(c.proofDone && f.photos.length > 0);
+    if (c.ok) status.replaceChildren(h('span', { class: 'row' }, icon('check', 18), h('strong', {}, `Ready to record · identity ${c.level}`)));
+    else stillNeeded(status, c.problems);
     save.disabled = !c.ok;
   }
   update();
@@ -513,7 +645,7 @@ async function renderHandover(eventId, beneficiaryId) {
     const c = current();
     if (!c.ok) return;
     save.disabled = true;
-    save.textContent = 'Saving…';
+    save.classList.add('busy');
     try {
       const device = await db.deviceId();
       const clientId = `${device}-${String(await db.next('record_seq')).padStart(6, '0')}`;
@@ -532,24 +664,12 @@ async function renderHandover(eventId, beneficiaryId) {
       if (f.safety) evidence.push({ type: 'safety_ack' });
 
       const payload = {
-        kind: 'handover',
-        event: eventId,
-        client_handover_id: clientId,
-        beneficiary: farmer.id,
+        kind: 'handover', event: eventId, client_handover_id: clientId, beneficiary: farmer.id,
         card_code: card ? card.code : undefined,
-        identity: {
-          face_matched: f.faceMatched,
-          id_last4: f.idMatched ? f.idLast4 : undefined,
-          photo_taken: f.photos.length > 0,
-          witness_confirmed: f.witnessConfirmed,
-        },
-        received_by: f.receivedBy,
-        recipient_name: f.receivedBy === 'self' ? undefined : f.recipient.trim(),
+        identity: { face_matched: f.faceMatched, id_last4: f.idMatched ? f.idLast4 : undefined, photo_taken: f.photos.length > 0, witness_confirmed: f.witnessConfirmed },
+        received_by: f.receivedBy, recipient_name: f.receivedBy === 'self' ? undefined : f.recipient.trim(),
         lines: c.lines.map((l) => ({ sku: l.sku, lot: l.lot, quantity: l.quantity })),
-        evidence,
-        latitude: position?.latitude,
-        longitude: position?.longitude,
-        accuracy_m: position?.accuracy,
+        evidence, latitude: position?.latitude, longitude: position?.longitude, accuracy_m: position?.accuracy,
         captured_at: new Date().toISOString(),
       };
 
@@ -577,7 +697,7 @@ async function renderHandover(eventId, beneficiaryId) {
     } catch (err) {
       toast(`Not saved: ${err.message}`);
       save.disabled = false;
-      save.textContent = 'Record handover';
+      save.classList.remove('busy');
     }
   });
 }
@@ -593,6 +713,31 @@ function locate() {
 }
 
 // ---------------------------------------------------------------------------
+// Receipt: the moment of success
+
+async function renderReceipt(clientId) {
+  const record = await db.get('outbox', clientId);
+  if (!record) return go('#/');
+  const bundle = await db.get('bundles', record.event);
+  const farmer = bundle?.beneficiaries.find((b) => b.id === record.payload.beneficiary);
+  const items = Object.fromEntries((bundle?.items || []).map((i) => [i.sku, i]));
+  const sent = record.status === 'synced';
+
+  screen({ title: 'Recorded', back: `#/event/${record.event}`, actions: actionBar(null, button('Next farmer', { variant: 'primary', iconName: 'scan', onClick: () => go(`#/event/${record.event}`) })) },
+    h('section', { class: 'success' },
+      h('div', { class: 'success-mark' }, icon('check', 52)),
+      h('h1', {}, 'Handover recorded'),
+      h('p', { class: 'muted' }, farmer?.name || record.payload.beneficiary)),
+    h('section', { class: 'card' },
+      h('ul', { class: 'checklist' }, record.payload.lines.map((l) => {
+        const item = items[l.sku];
+        return h('li', {}, icon('check', 18), `${item ? plural(l.quantity, item.unit) : number(l.quantity)} · ${item?.name || l.sku}${l.lot ? ` (lot ${l.lot})` : ''}`);
+      })),
+      h('p', { class: 'small muted' }, `${clock(record.payload.captured_at)} · record ${clientId}`)),
+    notice(sent ? 'ok' : 'info', sent ? 'Sent to the office.' : 'Safe on this phone. It will be sent when there is signal.'));
+}
+
+// ---------------------------------------------------------------------------
 // Door-to-door: not delivered
 
 async function renderAttempt(eventId, beneficiaryId) {
@@ -600,9 +745,8 @@ async function renderAttempt(eventId, beneficiaryId) {
   if (dayState(bundle) !== 'open') throw new Error('The day is not open on this phone.');
   const farmer = bundle.beneficiaries.find((b) => b.id === beneficiaryId);
   if (!farmer) throw new Error('This farmer is not on this route.');
-  setTitle(farmer.name);
 
-  const reason = h('select', { id: 'reason' }, h('option', { value: '' }, 'Choose a reason'), (bundle.failure_reasons || Object.keys(FAILURE_LABELS)).map((r) => h('option', { value: r }, FAILURE_LABELS[r] || r)));
+  const reason = h('select', {}, h('option', { value: '' }, 'Choose a reason'), (bundle.failure_reasons || Object.keys(FAILURE_LABELS)).map((r) => h('option', { value: r }, FAILURE_LABELS[r] || r)));
   const photos = [];
   const thumbs = h('div', { class: 'thumbs' });
   const photoInput = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true, onchange: async (e) => {
@@ -613,7 +757,7 @@ async function renderAttempt(eventId, beneficiaryId) {
     photos.push(photo);
     thumbs.append(h('img', { src: URL.createObjectURL(photo.blob), alt: 'Photo' }));
   } });
-  const save = h('button', { type: 'button', class: 'primary block' }, 'Record visit');
+  const save = button('Record visit', { variant: 'primary' });
 
   save.addEventListener('click', async () => {
     if (!reason.value) return toast('Choose a reason.');
@@ -628,10 +772,7 @@ async function renderAttempt(eventId, beneficiaryId) {
       writes.push(['media', id, { id, blob: photo.blob, sha256: photo.sha256, kind: 'photo', status: 'pending', client_handover_id: clientId }]);
       evidence.push({ type: 'photo', media: id, sha256: photo.sha256 });
     }
-    const payload = {
-      kind: 'attempt', event: eventId, client_handover_id: clientId, beneficiary: farmer.id, reason: reason.value, evidence,
-      latitude: position?.latitude, longitude: position?.longitude, accuracy_m: position?.accuracy, captured_at: new Date().toISOString(),
-    };
+    const payload = { kind: 'attempt', event: eventId, client_handover_id: clientId, beneficiary: farmer.id, reason: reason.value, evidence, latitude: position?.latitude, longitude: position?.longitude, accuracy_m: position?.accuracy, captured_at: new Date().toISOString() };
     farmer.entitlements.forEach((e) => { e.attempts = (e.attempts || 0) + 1; });
     farmer.handovers.push({ id: clientId, outcome: 'failed', at: payload.captured_at, local: true });
     await db.putMany([...writes, ['outbox', clientId, { payload, status: 'pending', event: eventId, label: `${farmer.name} (not delivered)`, created_at: payload.captured_at }], ['bundles', eventId, bundle]]);
@@ -639,180 +780,83 @@ async function renderAttempt(eventId, beneficiaryId) {
 
     const attempts = Math.max(...farmer.entitlements.map((e) => e.attempts || 0));
     const max = bundle.programme.max_attempts || 2;
-    toast(['farmer_deceased', 'household_moved'].includes(reason.value)
+    toastAfterNavigate(['farmer_deceased', 'household_moved'].includes(reason.value)
       ? 'Recorded. The office will review this farmer\'s record.'
-      : attempts >= max ? `Recorded. This was visit ${attempts} of ${max}: the farmer will be moved to a distribution point.` : `Recorded (visit ${attempts} of ${max}).`, 6000);
+      : attempts >= max ? `Recorded. Visit ${attempts} of ${max}: the farmer will be moved to a distribution point.` : `Recorded (visit ${attempts} of ${max}).`, 6000);
     go(`#/event/${eventId}`);
   });
 
-  mount(
-    h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => go(`#/event/${eventId}`) }, '‹ Route')),
+  screen({ title: 'Not delivered', subtitle: farmer.name, back: `#/event/${eventId}`, actions: actionBar(null, save) },
     h('section', { class: 'card stack' },
-      h('h1', {}, 'Not delivered'),
-      h('p', { class: 'muted' }, `${farmer.name} · ${farmer.village || ''}`),
-      h('label', { for: 'reason' }, 'Why'), reason,
-      h('button', { type: 'button', onclick: () => photoInput.click() }, 'Take a photo (optional)'), photoInput, thumbs,
-      save));
+      h('h1', {}, farmer.name),
+      h('p', { class: 'muted' }, farmer.village || ''),
+      field('Why', reason),
+      button('Take a photo (optional)', { variant: 'secondary', iconName: 'camera', block: true, onClick: () => photoInput.click() }), photoInput, thumbs));
 }
 
 // ---------------------------------------------------------------------------
-// Receipt
-
-async function renderReceipt(clientId) {
-  const record = await db.get('outbox', clientId);
-  if (!record) return go('#/');
-  const bundle = await db.get('bundles', record.event);
-  const farmer = bundle?.beneficiaries.find((b) => b.id === record.payload.beneficiary);
-  const items = Object.fromEntries((bundle?.items || []).map((i) => [i.sku, i.name]));
-  setTitle('Recorded');
-
-  mount(
-    h('section', { class: 'card stack' },
-      h('div', { class: 'notice ok' }, h('strong', {}, 'Handover recorded.'), ' ', record.status === 'synced' ? 'Sent to the office.' : 'It is safe on this phone and will be sent when there is signal.'),
-      h('p', {}, h('strong', {}, farmer?.name || record.payload.beneficiary)),
-      h('ul', {}, record.payload.lines.map((l) => h('li', {}, `${number(l.quantity)} × ${items[l.sku] || l.sku}${l.lot ? ` (lot ${l.lot})` : ''}`))),
-      h('p', { class: 'small muted' }, `${time(record.payload.captured_at)} · record ${clientId}`)),
-    h('button', { type: 'button', class: 'primary block', onclick: () => go(`#/event/${record.event}`) }, 'Next farmer'));
-}
-
-// ---------------------------------------------------------------------------
-// Opening and closing the day (AGRI-INPUTS.md §11), offline
-//
-// The phone's copy of a day is planned, open, closing (closed on this phone,
-// waiting for the server) or closed. Other phones at the same distribution
-// point "join" the opening instead of counting again; their handovers wait on
-// the server until the opening phone has synced.
-
-function dayState(bundle) {
-  const local = bundle.local || {};
-  if (bundle.event.status === 'closed') return 'closed';
-  if (local.closing) return 'closing';
-  if (bundle.event.status === 'open' || local.opened || local.joined) return 'open';
-  return 'planned';
-}
-
-function dayChip(bundle) {
-  const state = dayState(bundle);
-  if (state === 'planned') return h('span', { class: 'chip warn' }, 'Not opened yet');
-  if (state === 'closing') return h('span', { class: 'chip warn' }, 'Closed here, waiting to send');
-  if (state === 'closed') return h('span', { class: 'chip ok' }, 'Closed');
-  return null;
-}
-
-function dayActions(bundle, eventId) {
-  const state = dayState(bundle);
-  if (state === 'planned') {
-    return h('section', { class: 'card stack' },
-      h('strong', {}, 'The day has not been opened yet.'),
-      h('p', { class: 'small muted' }, 'Open it with a witnessed count of the stock here. If another phone at this distribution point has already opened it, join instead: do not count twice.'),
-      h('button', { type: 'button', class: 'primary block', onclick: () => go(`#/open/${eventId}`) }, 'Open the day'),
-      h('button', { type: 'button', class: 'block', onclick: async () => {
-        bundle.local = { ...(bundle.local || {}), joined: true };
-        await db.put('bundles', eventId, bundle);
-        toast('Joined. Your handovers will be accepted once the opening phone has synced.', 5000);
-        render();
-      } }, 'Join: opened on another phone'));
-  }
-  if (state === 'closing') {
-    return h('div', { class: 'notice' },
-      'The day was closed on this phone. The closing count will be sent with the other records. If the office says it does not balance, record what happened:',
-      h('div', { class: 'mt' }, h('button', { type: 'button', onclick: () => go(`#/discrepancy/${eventId}`) }, 'Damaged or missing stock')));
-  }
-  if (state === 'closed') {
-    return h('div', { class: 'notice ok' }, 'This day is closed.');
-  }
-  return h('div', {},
-    h('div', { class: 'row wrap mt' },
-      h('button', { type: 'button', class: 'grow', onclick: () => go(`#/discrepancy/${eventId}`) }, 'Damaged or missing stock'),
-      h('button', { type: 'button', class: 'grow danger', onclick: () => go(`#/close/${eventId}`) }, 'Close the day')),
-    bundle.local?.joined && !bundle.local?.opened ? h('p', { class: 'small muted' }, 'This phone joined the day. Usually the phone that opened it does the closing count.') : null);
-}
-
-/** Pending records the server answered "not yet" for: the day isn't open there yet, or a closing doesn't balance. */
-function waitingNotices(outbox) {
-  const waiting = outbox.filter((r) => r.status === 'pending' && r.result && ['deferred', 'unbalanced'].includes(r.result.status));
-  if (!waiting.length) return null;
-
-  return waiting.map((r) => {
-    if (r.result.status === 'deferred') {
-      return h('div', { class: 'notice' }, `${r.label}: waiting for the day to be opened on the server (the opening phone has not synced yet). It will be sent again.`);
-    }
-    const lines = (r.result.lines || []).map((l) => {
-      const v = Number(l.variance);
-      return h('li', {}, `${l.sku}${l.lot ? ` lot ${l.lot}` : ''}: ${v > 0 ? `${number(v)} fewer counted than recorded` : `${number(-v)} more counted than recorded`}`);
-    });
-    return h('div', { class: 'notice bad' },
-      h('strong', {}, `${r.label}: the count does not balance yet.`),
-      h('ul', {}, lines),
-      h('p', { class: 'small' }, 'If other phones handed out from this stock, it will balance once they sync. Otherwise record what happened as damaged or missing stock; the closing is sent again by itself.'),
-      h('button', { type: 'button', onclick: () => go(`#/discrepancy/${r.event}`) }, 'Damaged or missing stock'));
-  });
-}
+// Opening and closing counts
 
 /** A witness: name, role and signature. */
 function witnessFields(bundle, label) {
   const name = h('input', { type: 'text', 'aria-label': `${label}: name` });
   const role = h('select', { 'aria-label': `${label}: role` }, (bundle.witness_roles || Object.keys(WITNESS_ROLE_LABELS)).map((r) => h('option', { value: r }, WITNESS_ROLE_LABELS[r] || r)));
   const canvas = h('canvas', { class: 'pad', 'aria-label': `${label}: signature` });
-  const box = h('div', { class: 'stack' }, h('strong', {}, label), h('label', {}, 'Name'), name, h('label', {}, 'Role'), role, h('label', {}, 'Signs here'), canvas);
-  const field = { box, name, role, pad: null };
-  field.attach = (onchange) => {
-    field.pad = new SignaturePad(canvas);
-    field.pad.onchange = onchange;
+  const clear = button('Clear', { variant: 'ghost' });
+  const box = h('div', { class: 'stack' },
+    h('h3', {}, label),
+    h('div', {}, h('span', { class: 'label' }, 'Name'), name),
+    h('div', {}, h('span', { class: 'label' }, 'Role'), role),
+    h('span', { class: 'label' }, 'Signs here'), h('div', { class: 'pad-wrap' }, canvas, h('span', { class: 'pad-hint' }, 'Sign here')), clear);
+  const field_ = { box, name, role, pad: null };
+  field_.attach = (onchange) => {
+    field_.pad = new SignaturePad(canvas);
+    field_.pad.onchange = onchange;
     name.addEventListener('input', onchange);
-    box.append(h('button', { type: 'button', onclick: () => field.pad.clear() }, 'Clear'));
+    clear.addEventListener('click', () => field_.pad.clear());
   };
-  field.complete = () => name.value.trim() !== '' && field.pad && !field.pad.isEmpty();
-  field.empty = () => name.value.trim() === '' && (!field.pad || field.pad.isEmpty());
-  return field;
+  field_.complete = () => name.value.trim() !== '' && field_.pad && !field_.pad.isEmpty();
+  field_.empty = () => name.value.trim() === '' && (!field_.pad || field_.pad.isEmpty());
+  return field_;
 }
 
-/**
- * The opening count (stock at the distribution point now) or the closing count
- * (what's left), each witnessed and signed.
- */
 async function renderCount(eventId, kind) {
   const bundle = await loadBundle(eventId);
   const state = dayState(bundle);
   if (kind === 'open' && state !== 'planned') throw new Error('This day is already open on this phone.');
   if (kind === 'close' && state !== 'open') throw new Error('Only an open day can be closed.');
-  setTitle(kind === 'open' ? 'Open the day' : 'Close the day');
 
   const items = Object.fromEntries(bundle.items.map((i) => [i.sku, i.name]));
-  // Opening: the stock the site holds. Closing: what this phone expects is left.
+  // Opening: what the site holds. Closing: what this phone expects is left.
   const lines = bundle.stock.map((s) => ({ sku: s.sku, lot: s.lot, expected: Number(s.quantity), counted: null }));
 
   const rows = lines.map((line) => {
-    const diff = h('span', { class: 'small' });
+    const diff = h('span', {});
     const input = h('input', { type: 'number', inputmode: 'decimal', min: '0', step: 'any', 'aria-label': `Counted: ${items[line.sku] || line.sku} lot ${line.lot}`, oninput: (e) => {
       line.counted = e.target.value === '' ? null : Number(e.target.value);
       const d = line.counted === null ? 0 : line.counted - line.expected;
-      diff.textContent = line.counted === null || d === 0 ? '' : kind === 'open' ? (d > 0 ? 'More than the site holds' : '') : `${d > 0 ? '+' : ''}${number(d)} against this phone's records`;
-      diff.className = d === 0 ? 'small' : 'chip warn';
+      diff.replaceChildren(line.counted === null || d === 0 ? '' : pill(kind === 'open' ? (d > 0 ? 'More than the site holds' : `${number(d)} against the site`) : `${d > 0 ? '+' : ''}${number(d)} against this phone's records`, kind === 'open' && d > 0 ? 'bad' : 'warn'));
       update();
     } });
-    return h('div', { class: 'line' },
-      h('div', { class: 'row between' }, h('strong', {}, items[line.sku] || line.sku), h('span', { class: 'small muted' }, `lot ${line.lot || '–'}`)),
-      h('div', { class: 'row wrap mt-small' },
-        h('div', { class: 'grow' }, input),
-        h('span', { class: 'small muted' }, kind === 'open' ? `site holds ${number(line.expected)}` : `records say ${number(line.expected)}`)),
+    return h('div', { class: 'line-item' },
+      h('div', { class: 'row between top' }, h('h3', {}, items[line.sku] || line.sku), h('span', { class: 'small muted' }, `Lot ${line.lot || '–'}`)),
+      h('div', { class: 'count-controls' }, input, h('span', { class: 'muted' }, kind === 'open' ? `site holds ${number(line.expected)}` : `records say ${number(line.expected)}`)),
       diff);
   });
 
   const w1 = witnessFields(bundle, 'Witness');
   const w2 = witnessFields(bundle, 'Second witness (optional)');
-  const status = h('div', { class: 'notice', role: 'status' });
-  const save = h('button', { type: 'button', class: 'primary block', disabled: true }, kind === 'open' ? 'Record opening' : 'Record closing');
+  const status = h('div', {});
+  const save = button(kind === 'open' ? 'Record opening' : 'Record closing', { variant: 'primary', disabled: true });
 
-  const intro = kind === 'open'
-    ? 'Count every item and lot at the distribution point before handing anything over. Enter 0 for anything not here.'
-    : 'Count what is left of every item and lot. Handovers recorded on other phones are not in this phone\'s figures: they are counted when those phones sync.';
-
-  mount(
-    h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => go(`#/event/${eventId}`) }, '‹ Back')),
-    h('section', { class: 'card' }, h('h1', {}, kind === 'open' ? 'Opening count' : 'Closing count'), h('p', { class: 'muted small' }, intro), rows),
-    h('section', { class: 'card stack' }, w1.box, w2.box),
-    h('div', { class: 'footer-actions' }, status, save));
+  screen({ title: kind === 'open' ? 'Open the day' : 'Close the day', subtitle: bundle.event.name, back: `#/event/${eventId}`, actions: actionBar(status, save) },
+    h('section', { class: 'card' },
+      h('h1', {}, kind === 'open' ? 'Opening count' : 'Closing count'),
+      h('p', { class: 'muted' }, kind === 'open'
+        ? 'Count every item and lot at the distribution point before handing anything over. Enter 0 for anything not here.'
+        : 'Count what is left of every item and lot. Handovers recorded on other phones are not in this phone\'s figures: they are counted when those phones sync.'),
+      rows),
+    h('section', { class: 'card stack' }, w1.box, w2.box));
 
   w1.attach(update);
   w2.attach(update);
@@ -831,18 +875,17 @@ async function renderCount(eventId, kind) {
   function update() {
     const p = problems();
     const off = kind === 'close' ? lines.filter((l) => l.counted !== null && l.counted !== l.expected) : [];
-    status.className = p.length ? 'notice' : off.length ? 'notice bad' : 'notice ok';
-    status.replaceChildren(p.length
-      ? h('span', {}, h('strong', {}, 'Still needed: '), p.join('; ') + '.')
-      : off.length ? `${plural(off.length, 'line')} ${off.length === 1 ? 'differs' : 'differ'} from this phone's records. Record damaged or missing stock first, unless other phones handed out from this stock.`
-        : 'Ready.');
     save.disabled = p.length > 0;
+    if (p.length) stillNeeded(status, p);
+    else if (off.length) status.replaceChildren(h('span', { class: 'row' }, icon('alert', 18), `${plural(off.length, 'line')} ${off.length === 1 ? 'differs' : 'differ'} from this phone's records. Record damaged or missing stock first, unless other phones handed out from this stock.`));
+    else status.replaceChildren(h('span', { class: 'row' }, icon('check', 18), h('strong', {}, 'Ready.')));
   }
   update();
 
   save.addEventListener('click', async () => {
     if (problems().length) return;
     save.disabled = true;
+    save.classList.add('busy');
     try {
       const device = await db.deviceId();
       const clientId = `${device}-${kind}-${String(await db.next('record_seq')).padStart(6, '0')}`;
@@ -855,15 +898,10 @@ async function renderCount(eventId, kind) {
         writes.push(['media', id, { id, blob: media.blob, sha256: media.sha256, kind: 'witness_signature', status: 'pending', client_handover_id: clientId }]);
         witnesses.push({ name: w.name.value.trim(), role: w.role.value, signature: id, sha256: media.sha256 });
       }
-      const payload = {
-        kind, event: eventId, client_handover_id: clientId,
-        stock: lines.map((l) => ({ sku: l.sku, lot: l.lot, quantity: l.counted })),
-        witnesses, captured_at: new Date().toISOString(),
-      };
+      const payload = { kind, event: eventId, client_handover_id: clientId, stock: lines.map((l) => ({ sku: l.sku, lot: l.lot, quantity: l.counted })), witnesses, captured_at: new Date().toISOString() };
 
       if (kind === 'open') {
         bundle.local = { ...(bundle.local || {}), opened: true, opened_at: payload.captured_at };
-        // From now on the phone works from the counted stock.
         bundle.stock = lines.filter((l) => l.counted > 0).map((l) => ({ sku: l.sku, lot: l.lot, quantity: l.counted, expiry: (bundle.stock.find((s) => s.sku === l.sku && s.lot === l.lot) || {}).expiry || null }));
       } else {
         bundle.local = { ...(bundle.local || {}), closing: true, closed_at: payload.captured_at };
@@ -871,32 +909,29 @@ async function renderCount(eventId, kind) {
 
       await db.putMany([...writes, ['outbox', clientId, { payload, status: 'pending', event: eventId, label: `${kind === 'open' ? 'Opening' : 'Closing'} of ${bundle.event.name}`, created_at: payload.captured_at }], ['bundles', eventId, bundle]]);
       syncNow();
-      toast(kind === 'open' ? 'The day is open. You can hand over now.' : 'Closing recorded. It will be sent with the other records.', 5000);
+      toastAfterNavigate(kind === 'open' ? 'The day is open. You can hand over now.' : 'Closing recorded. It will be sent with the other records.', 5000);
       go(`#/event/${eventId}`);
     } catch (err) {
       toast(`Not saved: ${err.message}`);
       save.disabled = false;
+      save.classList.remove('busy');
     }
   });
 }
 
-const DISCREPANCY_REASONS = {
-  torn_bag: 'Torn bag', damaged: 'Damaged', wet: 'Wet or spoilt', spill_leak: 'Spilled or leaking', expired: 'Expired',
-  theft: 'Stolen', count_error: 'Counting error', counterfeit_suspected: 'Looks fake or relabelled', other: 'Other',
-};
+// ---------------------------------------------------------------------------
+// Damaged or missing stock
 
-/** Stock damaged, spoilt or missing during the day. */
 async function renderDiscrepancy(eventId) {
   const bundle = await loadBundle(eventId);
-  if (dayState(bundle) !== 'open' && dayState(bundle) !== 'closing') throw new Error('The day is not open on this phone.');
-  setTitle('Damaged or missing stock');
+  if (!['open', 'closing'].includes(dayState(bundle))) throw new Error('The day is not open on this phone.');
   const items = Object.fromEntries(bundle.items.map((i) => [i.sku, i.name]));
 
-  const line = h('select', { id: 'line' }, bundle.stock.map((s, i) => h('option', { value: String(i) }, `${items[s.sku] || s.sku} · lot ${s.lot || '–'} · ${number(s.quantity)} left`)));
-  const quantity = h('input', { type: 'number', id: 'qty', min: '0', step: 'any', inputmode: 'decimal' });
-  const reason = h('select', { id: 'why' }, h('option', { value: '' }, 'Choose'), Object.entries(DISCREPANCY_REASONS).map(([v, l]) => h('option', { value: v }, l)));
-  const notes = h('textarea', { id: 'notes', rows: '3', placeholder: 'What happened, who saw it' });
-  const save = h('button', { type: 'button', class: 'primary block' }, 'Record');
+  const line = h('select', {}, bundle.stock.map((s, i) => h('option', { value: String(i) }, `${items[s.sku] || s.sku} · lot ${s.lot || '–'} · ${number(s.quantity)} left`)));
+  const quantity = h('input', { type: 'number', min: '0', step: 'any', inputmode: 'decimal' });
+  const reason = h('select', {}, h('option', { value: '' }, 'Choose'), Object.entries(DISCREPANCY_REASONS).map(([v, l]) => h('option', { value: v }, l)));
+  const notes = h('textarea', { rows: '3', placeholder: 'What happened, who saw it' });
+  const save = button('Record', { variant: 'primary' });
 
   save.addEventListener('click', async () => {
     const stock = bundle.stock[Number(line.value)];
@@ -912,17 +947,140 @@ async function renderDiscrepancy(eventId) {
     stock.quantity = Number(stock.quantity) - qty;
     await db.putMany([['outbox', clientId, { payload, status: 'pending', event: eventId, label: `${DISCREPANCY_REASONS[reason.value]}: ${number(qty)} ${items[stock.sku] || stock.sku}`, created_at: payload.captured_at }], ['bundles', eventId, bundle]]);
     syncNow();
-    toast('Recorded.');
+    toastAfterNavigate('Recorded.');
     go(`#/event/${eventId}`);
   });
 
-  mount(
-    h('div', { class: 'row' }, h('button', { type: 'button', onclick: () => go(`#/event/${eventId}`) }, '‹ Back')),
+  screen({ title: 'Damaged or missing stock', subtitle: bundle.event.name, back: `#/event/${eventId}`, actions: actionBar(null, save) },
     h('section', { class: 'card stack' },
-      h('h1', {}, 'Damaged or missing stock'),
-      h('label', { for: 'line' }, 'Item and lot'), line,
-      h('label', { for: 'qty' }, 'How many'), quantity,
-      h('label', { for: 'why' }, 'What happened'), reason,
-      h('label', { for: 'notes' }, 'Details'), notes,
-      save));
+      h('p', { class: 'muted' }, 'Torn, wet, spoilt, stolen or given out by mistake: it comes out of the stock and counts in the closing.'),
+      field('Item and lot', line),
+      field('How many', quantity),
+      field('What happened', reason),
+      field('Details', notes)));
+}
+
+// ---------------------------------------------------------------------------
+// Supervisor: review records the server could not accept
+
+const CONFLICT_HEADLINES = {
+  already_collected: 'Farmer served twice',
+  assigned_elsewhere: 'Farmer belongs to another distribution',
+  card_revoked: 'A replaced card was used',
+  already_opened: 'Day opened twice',
+  already_closed: 'Closing after the day was closed',
+  over_entitlement: 'More than the entitlement',
+  not_trained: 'Restricted product without training',
+  lot_expired: 'Expired lot handed over',
+  lot_recalled: 'Recalled lot handed over',
+  identity_insufficient: 'Identity not confirmed',
+  proof_missing: 'Proof missing',
+  event_not_found: 'Distribution not found',
+};
+
+const KIND_LABELS = { handover: 'Handover', attempt: 'Door-to-door visit', open: 'Opening count', close: 'Closing count', discrepancy: 'Missing stock' };
+
+const RESOLUTIONS = {
+  written_off: ['Record as missing stock', 'The goods are lost to the programme. They are recorded as missing stock on this day, against the officer.'],
+  recovered: ['Goods taken back', 'The extra goods were returned. Nothing is recorded as missing.'],
+  reviewed: ['Reviewed, nothing to record', 'You have checked what happened and the stock needs no change (for example, the loss was already recorded at closing).'],
+};
+
+async function renderReview(status) {
+  if (!navigator.onLine) throw new Error('Reviewing conflicts needs signal: they are on the server.');
+  const tabs = h('div', { class: 'seg', role: 'group', 'aria-label': 'Show' },
+    ['open', 'resolved'].map((s) => h('button', { type: 'button', 'aria-pressed': String(s === status), onclick: () => go(s === 'open' ? '#/review' : `#/review/${s}`) }, s === 'open' ? 'To review' : 'Resolved')));
+
+  const data = await api(`pod/conflicts?status=${status}`);
+  const conflicts = data.conflicts || [];
+
+  screen({ title: 'Review', subtitle: 'Records the server could not accept', back: '#/', wide: true },
+    tabs,
+    conflicts.length
+      ? h('ul', { class: 'list' }, conflicts.map((c) => h('li', {},
+        h('button', { type: 'button', class: 'list-row', onclick: () => go(`#/review/${c.id}`) },
+          h('span', { class: `avatar${c.status === 'resolved' ? ' ok' : ''}` }, icon(c.status === 'resolved' ? 'check' : 'alert', 20)),
+          h('span', { class: 'grow col' },
+            h('span', { class: 'row-title' }, CONFLICT_HEADLINES[c.error] || KIND_LABELS[c.kind] || 'Record not accepted'),
+            h('span', { class: 'row-meta' }, [c.farmer?.name, c.event?.name, time(c.captured_at)].filter(Boolean).join(' · ')),
+            h('span', { class: 'row-pill' }, c.status === 'resolved' ? pill(RESOLUTIONS[c.resolution]?.[0] || 'Resolved', 'ok', 'check') : pill(KIND_LABELS[c.kind] || c.kind, 'warn'))),
+          icon('chevron', 20)))))
+      : h('div', { class: 'card empty' }, icon('shield', 36), h('h2', {}, status === 'open' ? 'Nothing to review' : 'Nothing resolved yet'), h('p', { class: 'small' }, status === 'open' ? 'Records that the server could not accept will appear here.' : '')));
+}
+
+async function renderConflict(id) {
+  if (!navigator.onLine) throw new Error('Reviewing conflicts needs signal: they are on the server.');
+  const c = (await api(`pod/conflicts/${encodeURIComponent(id)}`)).conflict;
+  const linesList = (lines) => h('ul', { class: 'checklist' }, (lines || []).map((l) => h('li', {}, icon('box', 16), `${number(l.quantity)} × ${l.name || l.sku}${l.lot ? ` (lot ${l.lot})` : ''}`)));
+
+  // The record from the phone.
+  const photos = h('div', { class: 'photo-grid' });
+  for (const e of c.evidence || []) {
+    if (!e.media) continue;
+    const img = h('img', { alt: `${e.type.replace(/_/g, ' ')}${e.name ? ': ' + e.name : ''}` });
+    photos.append(h('figure', {}, img, h('figcaption', {}, `${e.type.replace(/_/g, ' ')}${e.name ? ' · ' + e.name : ''}${e.uploaded ? '' : ' (not uploaded yet)'}`)));
+    if (e.uploaded) apiBlob(`pod/media/${encodeURIComponent(e.media)}`).then((blob) => { img.src = URL.createObjectURL(blob); }).catch(() => {});
+  }
+
+  const phoneRecord = h('section', { class: 'card' },
+    h('h3', {}, icon('pen', 18), 'Recorded on the phone'),
+    h('dl', { class: 'kv' },
+      h('dt', {}, 'When'), h('dd', {}, time(c.captured_at)),
+      h('dt', {}, 'Record'), h('dd', { class: 'mono' }, c.record),
+      c.received_by ? [h('dt', {}, 'Collected by'), h('dd', {}, c.received_by === 'self' ? 'The farmer' : `${c.received_by.replace('_', ' ')}: ${c.recipient || ''}`)] : null),
+    linesList(c.lines),
+    photos.childElementCount ? photos : null);
+
+  const existing = c.existing || {};
+  const serverRecord = h('section', { class: 'card' },
+    h('h3', {}, icon('cloud', 18), 'Already on the server'),
+    existing.handovers?.length
+      ? existing.handovers.map((x) => h('div', { class: 'stack' }, h('p', { class: 'small' }, `${x.outcome === 'failed' ? 'Visit' : 'Handover'} at ${time(x.captured_at)} · ${x.record || x.id}`), linesList(x.lines)))
+      : existing.opening_stock ? [h('p', { class: 'small' }, 'Opening count'), linesList(existing.opening_stock), existing.closing_stock ? [h('p', { class: 'small' }, 'Closing count'), linesList(existing.closing_stock)] : null]
+        : h('p', { class: 'muted small' }, 'Nothing for this farmer on this day.'));
+
+  const top = h('section', { class: 'card' },
+    h('div', { class: 'row between top wrap' },
+      h('div', { class: 'grow' },
+        h('h1', {}, CONFLICT_HEADLINES[c.error] || 'Record not accepted'),
+        h('p', { class: 'muted' }, [c.farmer?.name, c.farmer?.village, c.event?.name].filter(Boolean).join(' · '))),
+      c.status === 'resolved' ? pill('Resolved', 'ok', 'check') : pill(KIND_LABELS[c.kind] || c.kind, 'warn')),
+    notice(c.status === 'resolved' ? 'ok' : 'warn', c.message));
+
+  if (c.status === 'resolved') {
+    screen({ title: 'Conflict', back: '#/review', wide: true }, top,
+      h('section', { class: 'card' }, h('h3', {}, RESOLUTIONS[c.resolution]?.[0] || c.resolution), h('p', {}, c.resolution_notes), h('p', { class: 'small muted' }, `Resolved ${time(c.resolved_at)}`)),
+      h('div', { class: 'compare' }, phoneRecord, serverRecord));
+    return;
+  }
+
+  let choice = c.options[0] || null;
+  const notes = h('textarea', { rows: '3', placeholder: 'What happened and what was done' });
+  const options = h('fieldset', { class: 'card' }, h('legend', { class: 'visually-hidden' }, 'Decision'), h('h2', {}, 'Your decision'),
+    c.options.map((o) => h('label', { class: 'option' },
+      h('input', { type: 'radio', name: 'resolution', value: o, checked: o === choice, onchange: () => { choice = o; update(); } }),
+      h('span', {}, h('strong', {}, RESOLUTIONS[o][0]), h('span', { class: 'small muted' }, RESOLUTIONS[o][1])))),
+    field('Notes', notes, 'Required. Kept with the record for the audit.'));
+  const error = h('div', {});
+  const resolve = button('Resolve', { variant: 'primary', disabled: true });
+  const update = () => { resolve.disabled = !choice || notes.value.trim().length < 10; };
+  notes.addEventListener('input', update);
+  update();
+
+  resolve.addEventListener('click', async () => {
+    resolve.disabled = true;
+    resolve.classList.add('busy');
+    try {
+      await api(`pod/conflicts/${encodeURIComponent(id)}/resolve`, { method: 'POST', json: { resolution: choice, notes: notes.value.trim() } });
+      toastAfterNavigate('Resolved.');
+      go('#/review');
+    } catch (err) {
+      error.replaceChildren(notice('bad', err.message));
+      resolve.classList.remove('busy');
+      update();
+    }
+  });
+
+  screen({ title: 'Conflict', subtitle: c.event?.name, back: '#/review', wide: true, actions: actionBar(null, resolve) },
+    top, h('div', { class: 'compare' }, phoneRecord, serverRecord), options, error);
 }
