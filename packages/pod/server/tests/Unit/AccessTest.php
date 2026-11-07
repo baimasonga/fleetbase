@@ -7,7 +7,7 @@ use Fleetbase\Pod\Support\Access\PermissionSet;
 use Fleetbase\Pod\Tests\TestCase;
 
 /**
- * The PoD roles: what each one can and cannot do.
+ * The Invendis roles: what each one can and cannot do.
  */
 final class AccessTest extends TestCase
 {
@@ -50,7 +50,7 @@ final class AccessTest extends TestCase
 
     public function testAFieldOfficerHandsOverButApprovesNothing(): void
     {
-        $officer = self::role('PoD Field Officer');
+        $officer = self::role('Invendis Field Officer');
 
         foreach (['sync field', 'open distribution', 'close distribution', 'create handover', 'create discrepancy', 'check card'] as $p) {
             $this->assertTrue($officer->allows("pod {$p}"), $p);
@@ -62,7 +62,7 @@ final class AccessTest extends TestCase
 
     public function testTheStorekeeperMovesStockButDoesNotExplainAwayShortages(): void
     {
-        $storekeeper = self::role('PoD Storekeeper');
+        $storekeeper = self::role('Invendis Storekeeper');
 
         foreach (['receive stock', 'create trip', 'load trip', 'receive trip', 'close trip', 'create discrepancy'] as $p) {
             $this->assertTrue($storekeeper->allows("pod {$p}"), $p);
@@ -74,7 +74,7 @@ final class AccessTest extends TestCase
 
     public function testATransporterOnlyHasTheirOwnTrips(): void
     {
-        $transporter = self::role('PoD Transporter');
+        $transporter = self::role('Invendis Transporter');
 
         $this->assertTrue($transporter->allows('pod depart own-trip'));
         $this->assertTrue($transporter->allows('pod arrive own-trip'));
@@ -85,7 +85,7 @@ final class AccessTest extends TestCase
 
     public function testMonitorsReadEverythingAndChangeNothing(): void
     {
-        $monitor = self::role('PoD Monitor');
+        $monitor = self::role('Invendis Monitor');
 
         foreach (['list programme', 'list farmer', 'list trip', 'list handover', 'list conflict', 'view media', 'view report', 'export report'] as $p) {
             $this->assertTrue($monitor->allows("pod {$p}"), $p);
@@ -98,13 +98,13 @@ final class AccessTest extends TestCase
 
     public function testSupervisorsReviewAndManagersSetUp(): void
     {
-        $supervisor = self::role('PoD Supervisor');
+        $supervisor = self::role('Invendis Supervisor');
         $this->assertTrue($supervisor->allows('pod resolve conflict'));
         $this->assertTrue($supervisor->allows('pod resolve discrepancy'));
         $this->assertTrue($supervisor->allows('pod create handover'));
         $this->assertFalse($supervisor->allows('pod import farmer'));
 
-        $manager = self::role('PoD Programme Manager');
+        $manager = self::role('Invendis Programme Manager');
         foreach (['import farmer', 'verify farmer', 'generate entitlement', 'print card', 'create distribution', 'assign distribution', 'resolve conflict', 'load trip'] as $p) {
             $this->assertTrue($manager->allows("pod {$p}"), $p);
         }

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#17552f">
-<title>Field Distribution</title>
+<meta name="theme-color" content="#f3efe6">
+<title>Invendis</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -14,14 +14,16 @@
 </head>
 <body>
 <a class="skip" href="#app">Skip to content</a>
-<header class="bar">
-  <button type="button" class="bar-back" id="back" aria-label="Back" hidden>
-    <svg class="icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+<header class="topbar">
+  <button type="button" class="topbar-back" id="back" aria-label="Back" hidden>
+    <svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    <span aria-hidden="true">Back</span>
   </button>
-  <div class="bar-titles">
-    <span class="bar-title" id="title">Field Distribution</span>
-    <span class="bar-subtitle" id="subtitle" hidden></span>
-  </div>
+  <span class="wordmark" aria-label="Invendis">
+    <span class="mark" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24" width="18" height="18"><path d="M4 6l8 13 8-13"/></svg></span>
+    <span aria-hidden="true">invendis</span>
+  </span>
+  <span class="spacer"></span>
   <span class="net" id="net" role="status" aria-live="polite"></span>
 </header>
 <main id="app" class="screen" tabindex="-1"><p class="muted">Loading…</p></main>

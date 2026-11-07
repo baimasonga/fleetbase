@@ -20,7 +20,7 @@ class Pod
 {
     public string $name = 'pod';
 
-    public string $policyName = 'PoD';
+    public string $policyName = 'Invendis';
 
     public array $guards = ['sanctum'];
 
@@ -44,7 +44,7 @@ class Pod
 
     public array $policies = [
         [
-            'name'        => 'PodProgrammeSetup',
+            'name'        => 'InvendisProgrammeSetup',
             'description' => 'Set up programmes: farmer lists, entitlements, cards, sites and distribution days.',
             'permissions' => [
                 'see extension',
@@ -55,7 +55,7 @@ class Pod
             ],
         ],
         [
-            'name'        => 'PodFieldWork',
+            'name'        => 'InvendisFieldWork',
             'description' => 'Distribution days in the field app: open and close the day, hand over, record damaged or missing stock.',
             'permissions' => [
                 'see extension',
@@ -64,7 +64,7 @@ class Pod
             ],
         ],
         [
-            'name'        => 'PodSupervision',
+            'name'        => 'InvendisSupervision',
             'description' => 'Review records the server could not accept and resolve stock discrepancies. Not on records one made oneself.',
             'permissions' => [
                 'see extension',
@@ -73,7 +73,7 @@ class Pod
             ],
         ],
         [
-            'name'        => 'PodStores',
+            'name'        => 'InvendisStores',
             'description' => 'Stores and transport: receive supplier deliveries, load and receive trucks.',
             'permissions' => [
                 'see extension',
@@ -81,7 +81,7 @@ class Pod
             ],
         ],
         [
-            'name'        => 'PodTransport',
+            'name'        => 'InvendisTransport',
             'description' => 'Hired or staff transporters: their own trips only, departure and arrival.',
             'permissions' => [
                 'see extension',
@@ -89,7 +89,7 @@ class Pod
             ],
         ],
         [
-            'name'        => 'PodMonitoring',
+            'name'        => 'InvendisMonitoring',
             'description' => 'M&E officers, auditors and third-party monitors: read everything, change nothing.',
             'permissions' => [
                 'see extension',
@@ -102,34 +102,34 @@ class Pod
 
     public array $roles = [
         [
-            'name'        => 'PoD Programme Manager',
+            'name'        => 'Invendis Programme Manager',
             'description' => 'Runs a programme: farmer lists, entitlements, cards, stock, trips and distribution days, and reviews.',
-            'policies'    => ['PodProgrammeSetup', 'PodSupervision', 'PodStores', 'PodMonitoring'],
+            'policies'    => ['InvendisProgrammeSetup', 'InvendisSupervision', 'InvendisStores', 'InvendisMonitoring'],
         ],
         [
-            'name'        => 'PoD Supervisor',
+            'name'        => 'Invendis Supervisor',
             'description' => 'Field supervisor: works distribution days and reviews other officers\' records.',
-            'policies'    => ['PodFieldWork', 'PodSupervision', 'PodMonitoring'],
+            'policies'    => ['InvendisFieldWork', 'InvendisSupervision', 'InvendisMonitoring'],
         ],
         [
-            'name'        => 'PoD Field Officer',
+            'name'        => 'Invendis Field Officer',
             'description' => 'Hands over inputs to farmers with the field app.',
-            'policies'    => ['PodFieldWork'],
+            'policies'    => ['InvendisFieldWork'],
         ],
         [
-            'name'        => 'PoD Storekeeper',
+            'name'        => 'Invendis Storekeeper',
             'description' => 'Receives, loads and dispatches stock at warehouses and stores.',
-            'policies'    => ['PodStores'],
+            'policies'    => ['InvendisStores'],
         ],
         [
-            'name'        => 'PoD Transporter',
+            'name'        => 'Invendis Transporter',
             'description' => 'Hired trucker or staff driver: sees and updates only the trips given to them.',
-            'policies'    => ['PodTransport'],
+            'policies'    => ['InvendisTransport'],
         ],
         [
-            'name'        => 'PoD Monitor',
+            'name'        => 'Invendis Monitor',
             'description' => 'M&E officer, auditor or third-party monitor: read-only access, including photos and reports.',
-            'policies'    => ['PodMonitoring'],
+            'policies'    => ['InvendisMonitoring'],
         ],
     ];
 }

@@ -97,7 +97,7 @@ class FieldController extends PodController
                     'client_handover_id' => (string) ($item['client_handover_id'] ?? ''),
                     'status'             => 'forbidden',
                     'error'              => 'forbidden',
-                    'message'            => 'Your account is not allowed to send this record (' . $permission . '). It stays on the phone: ask an administrator to give you the PoD Field Officer role.',
+                    'message'            => 'Your account is not allowed to send this record (' . $permission . '). It stays on the phone: ask an administrator to give you the Invendis Field Officer role.',
                 ];
                 continue;
             }

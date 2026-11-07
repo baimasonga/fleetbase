@@ -19,14 +19,16 @@ export async function scan(onCode) {
   video.muted = true;
   video.srcObject = stream;
   const frame = document.createElement('div');
-  frame.className = 'frame';
+  frame.className = 'scanner-frame';
   const controls = document.createElement('div');
-  controls.className = 'controls';
+  controls.className = 'scanner-bar';
+  const hint = document.createElement('span');
+  hint.textContent = 'Hold the QR on the card inside the frame.';
   const cancel = document.createElement('button');
   cancel.type = 'button';
-  cancel.className = 'block';
+  cancel.className = 'btn';
   cancel.textContent = 'Cancel';
-  controls.append(cancel);
+  controls.append(hint, cancel);
   overlay.append(video, frame, controls);
   document.body.append(overlay);
 

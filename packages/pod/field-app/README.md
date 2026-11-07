@@ -1,4 +1,4 @@
-# Field Distribution app
+# Invendis field app
 
 An offline web app for field officers to record handovers of agricultural inputs to farmers, with proof of delivery. It runs in Chrome on Android phones and needs no app store. It works with no signal and sends records when the phone gets signal again.
 
@@ -10,7 +10,7 @@ The app is served by your Fleetbase server at **`https://<your-server>/pod-field
 
 1. On the phone, open that address in **Chrome**, while on the depot Wi-Fi.
 2. Chrome menu (⋮) → **Add to Home screen**. The app then opens like any other app, including with no signal.
-3. Sign in with the officer's Fleetbase account. It needs the **PoD Field Officer** role (supervisors: **PoD Supervisor**); an administrator gives it in the console, under IAM → Users. Without it the home screen says so.
+3. Sign in with the officer's Fleetbase account. It needs the **Invendis Field Officer** role (supervisors: **Invendis Supervisor**); an administrator gives it in the console, under IAM → Users. Without it the home screen says so.
 
 The server must use **HTTPS**. Phones only allow the camera, and the app's offline storage and checks, on secure addresses. Your Caddy set-up already does this.
 
@@ -77,15 +77,17 @@ The server must use **HTTPS**. Phones only allow the camera, and the app's offli
 
 Notes are required and kept for the audit. **The person whose record it is can't resolve it**: another supervisor must.
 
-## Design
+## Design: "field signage"
 
-The app is built for officers outdoors, often in bright sun, with a queue waiting, on low-cost Android phones:
+The app is built for officers outdoors, in hard sun, with a queue waiting, on low-cost Android phones, often one-handed. It borrows from public signage, the most legible design there is:
 
-- **One main action per screen**, in a bar at the bottom within thumb reach. When it can't be used yet, the bar says what is still needed.
-- **High contrast** on a warm paper background, large type (17 px base), a single deep green kept for the main action, and status always as text with an icon, never colour alone.
-- **Numbered steps** on the handover screen (who, items, proof) that tick when done.
-- **Short motion** only to show a change of screen or a completed step; none when the phone asks for reduced motion.
-- **System fonts and drawn icons:** nothing to download, so it works offline. The design tokens are at the top of `app.css`.
+- **Ink and signal yellow** (Otl Aicher, Massimo Vignelli): black on unbleached paper for reading, and one signal yellow kept only for the main action. Status is always words with a pictogram, never colour alone.
+- **A Swiss grid** (Josef Müller-Brockmann): left-aligned, heavy rules instead of boxes and shadows, big condensed titles and numerals against small uppercase labels.
+- **Less, but better** (Dieter Rams): no gradients, shadows or decoration that doesn't say something.
+- **One eye, one thumb** (Luke Wroblewski): the main action lives in the black dock at the bottom. When it can't be used yet, the dock says what is still needed.
+- **Things that act look like they act** (Don Norman): buttons are solid blocks that press down; every action is answered.
+- **Motion as language** (Gleb Kuznetsov) **and a moment of delight** (Metalab): progress is a tally, one mark per farmer. The handover is a ticket with three stubs (who, items, proof) punched as each is done, ending in a stamped tear-off receipt. Motion only explains a change, and there's none when the phone asks for reduced motion.
+- **System fonts and drawn pictograms:** nothing to download, so it works offline. Titles and numerals use the phone's condensed face (Roboto Condensed on Android). The design tokens are at the top of `app.css`.
 
 ## Limits to know
 

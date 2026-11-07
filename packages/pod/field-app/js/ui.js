@@ -53,6 +53,8 @@ const ICONS = {
   home: 'M4 11l8-7 8 7M6 9.5V20h12V9.5',
   logout: 'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16l4-4-4-4M14 12H4',
   clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
+  vee: 'M4 6l8 13 8-13',
+  ticket: 'M3 6h18v4a2 2 0 0 0 0 4v4H3v-4a2 2 0 0 0 0-4zM14 6v12',
 };
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -76,29 +78,31 @@ export function icon(name, size = 22, label = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Screen frame: header (back, title, subtitle), content, bottom action bar.
+// Screen frame: the top strip (back, wordmark, signal), a page head (overline
+// and a big title) at the top of the content, and the dock with the main action.
 
 let goBack = null;
 let shownRoute = null;
 
 /**
- * @param {{title: string, subtitle?: string, back?: string|null, actions?: Node|null, wide?: boolean}} frame
+ * @param {{title: string, subtitle?: string, back?: string|null, actions?: Node|null, wide?: boolean, head?: boolean}} frame
+ *   head: false when the screen draws its own heading (sign-in, receipt).
  * @param  {...any} children
  */
 export function screen(frame, ...children) {
-  const title = document.getElementById('title');
-  const subtitle = document.getElementById('subtitle');
   const back = document.getElementById('back');
-  title.textContent = frame.title;
-  subtitle.textContent = frame.subtitle || '';
-  subtitle.hidden = !frame.subtitle;
-  document.title = frame.title === 'Field Distribution' ? frame.title : `${frame.title} · Field Distribution`;
+  document.title = frame.title === 'Invendis' ? frame.title : `${frame.title} · Invendis`;
   back.hidden = !frame.back;
   goBack = frame.back || null;
 
   const app = document.getElementById('app');
   app.className = `screen${frame.wide ? ' wide' : ''}${frame.actions ? ' has-actions' : ''}`;
   app.replaceChildren();
+  if (frame.head !== false) {
+    app.append(h('header', { class: 'head' },
+      frame.subtitle ? h('p', { class: 'overline' }, frame.subtitle) : null,
+      h('h1', {}, frame.title)));
+  }
   append(app, children);
 
   const bar = document.getElementById('actionbar');
@@ -167,7 +171,8 @@ export function notice(tone, ...children) {
  * @returns {{el: HTMLElement, setDone: (done: boolean) => void}}
  */
 export function step(number, title, ...children) {
-  const badge = h('span', { class: 'step-badge', 'aria-hidden': 'true' }, String(number));
+  const label = String(number).padStart(2, '0');
+  const badge = h('span', { class: 'step-badge', 'aria-hidden': 'true' }, label);
   const state = h('span', { class: 'visually-hidden' }, 'not done');
   const el = h('section', { class: 'card step' }, h('h2', { class: 'step-head' }, badge, h('span', {}, title), state), children);
   return {
@@ -175,7 +180,7 @@ export function step(number, title, ...children) {
     setDone(done) {
       if (el.classList.contains('done') === done && badge.childNodes.length) return; // unchanged: don't replay the tick
       el.classList.toggle('done', done);
-      badge.replaceChildren(done ? icon('check', 16) : String(number));
+      badge.replaceChildren(done ? icon('check', 24) : label);
       state.textContent = done ? 'done' : 'not done';
     },
   };
@@ -187,10 +192,15 @@ export function field(label, input, hint = null) {
   return h('div', { class: 'field' }, h('label', { for: id }, label), input, hint ? h('p', { class: 'hint' }, hint) : null);
 }
 
+/** A tally: one mark per farmer up to 40, a ruled bar beyond that. */
 export function progress(done, total) {
+  const attrs = { role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(done), 'aria-label': `${done} of ${total} served` };
+  if (total > 0 && total <= 40) {
+    return h('div', { class: 'progress', ...attrs },
+      Array.from({ length: total }, (_, i) => h('span', { class: `tick${i < done ? ' on' : ''}` })));
+  }
   const pct = total ? Math.round((done / total) * 100) : 0;
-  return h('div', { class: 'progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(done), 'aria-label': `${done} of ${total} served` },
-    h('span', { class: 'progress-fill', style: null, 'data-pct': String(pct) }));
+  return h('div', { class: 'progress bar', ...attrs }, h('span', { class: 'progress-fill', 'data-pct': String(pct) }));
 }
 
 /** Sets progress widths from data attributes (inline styles are blocked by the page's CSP; CSSOM is allowed). */

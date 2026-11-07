@@ -1,7 +1,7 @@
 {
     "name": "fleetbase/pod-api",
-    "version": "0.7.0",
-    "description": "Proof of Delivery extension for Fleetbase, with an agricultural inputs distribution profile",
+    "version": "0.8.0",
+    "description": "Invendis: proof of delivery extension for Fleetbase, with an agricultural inputs distribution profile",
     "keywords": ["fleetbase-extension", "proof-of-delivery", "pod", "agriculture", "distribution"],
     "license": "AGPL-3.0-or-later",
     "require": {

@@ -1,6 +1,6 @@
 # Field app end-to-end test
 
-`run.sh` runs the whole offline flow in headless Chromium against the real PoD package code: Laravel through Orchestra Testbench, with SQLite. Fleetbase core and the Fleet-Ops login are replaced by the stand-ins in `../Integration/Stubs` and in `server.php` (an officer, `officer@example.org`, and a supervisor, `supervisor@example.org`, both with the password `field-pass`). Their PoD roles (Field Officer and Supervisor) are given in `app.php` in place of Fleetbase IAM.
+`run.sh` runs the whole offline flow in headless Chromium against the real PoD package code: Laravel through Orchestra Testbench, with SQLite. Fleetbase core and the Fleet-Ops login are replaced by the stand-ins in `../Integration/Stubs` and in `server.php` (an officer, `officer@example.org`, and a supervisor, `supervisor@example.org`, both with the password `field-pass`). Their Invendis roles (Field Officer and Supervisor) are given in `app.php` in place of Fleetbase IAM.
 
 The test plays one distribution day with two phones and no signal at the distribution point:
 

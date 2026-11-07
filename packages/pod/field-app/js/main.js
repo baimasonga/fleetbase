@@ -1,8 +1,9 @@
-// Field Distribution: offline handovers of agricultural inputs.
+// Invendis field app: offline handovers of agricultural inputs.
 // AGRI-INPUTS.md §7.2 (identity), §8 (proof), §11 (opening and closing), §13 (offline); DESIGN.md §6.6.
 //
-// Design (see app.css): one main action per screen, at the bottom within thumb
-// reach; back always top left; progress visible; every action answered.
+// Design (see app.css, "field signage"): one main action per screen, in the dock
+// within thumb reach; back always top left; progress as a tally; the handover is
+// a ticket punched step by step; every action answered.
 
 import * as db from './db.js';
 import { api, apiBlob, OfflineError } from './api.js';
@@ -123,7 +124,7 @@ function renderLogin() {
   const submit = button('Sign in', { variant: 'primary', type: 'submit', block: true });
 
   const form = h('form', {
-    class: 'card stack',
+    class: 'card boxed stack',
     onsubmit: async (e) => {
       e.preventDefault();
       error.hidden = true;
@@ -153,11 +154,12 @@ function renderLogin() {
   field('Password', password),
   error, submit);
 
-  screen({ title: 'Field Distribution' },
+  screen({ title: 'Invendis', head: false },
     h('div', { class: 'brand' },
-      h('span', { class: 'brand-mark' }, icon('sack', 36)),
-      h('h1', {}, 'Hand over inputs, with or without signal.'),
-      h('p', { class: 'muted' }, 'Sign in with your Fleetbase account. You need signal only to sign in and to download a distribution.')),
+      h('span', { class: 'brand-mark' }, icon('vee', 38)),
+      h('h1', { class: 'brand-name' }, 'invendis'),
+      h('p', { class: 'brand-line' }, 'Every bag, accounted for. With or without signal.'),
+      h('p', { class: 'muted' }, 'Sign in with your account. You need signal only to sign in and to download a distribution.')),
     form);
   identity.focus();
 }
@@ -182,20 +184,22 @@ async function renderHome() {
   } else if (waiting) {
     state = { tone: 'info', iconName: 'sync', title: `${plural(s.pending, 'record')} and ${plural(s.mediaPending, 'photo')} to send`, text: s.lastError ? `Last try: ${s.lastError}` : 'Sending by itself while there is signal.' };
   } else {
-    state = { tone: 'ok', iconName: 'check', title: 'Everything is sent', text: s.lastSync ? `Last sync ${time(s.lastSync)}` : 'Nothing to send yet.' };
+    state = { tone: 'ok', iconName: 'check', title: 'Everything is sent', text: s.lastSync ? `Last sent ${time(s.lastSync)}.` : 'Nothing to send yet.' };
   }
 
-  const syncCard = h('section', { class: 'card' },
-    h('div', { class: 'status-card' },
-      h('span', { class: `status-icon ${state.tone}` }, icon(state.iconName, 24)),
-      h('div', { class: 'grow' }, h('h2', {}, state.title), h('p', { class: 'muted small' }, state.text)),
-      navigator.onLine ? button('Sync now', { variant: 'secondary', iconName: 'sync', onClick: async (e) => {
+  const syncCard = h('section', { class: 'board', 'aria-label': 'Sending' },
+    h('div', { class: 'board-main' },
+      h('span', { class: `board-sign ${state.tone}` }, icon(state.iconName, 28)),
+      h('div', { class: 'grow' }, h('h2', {}, state.title), h('p', { class: 'muted small' }, state.text))),
+    navigator.onLine ? h('div', { class: 'board-foot' },
+      h('span', { class: 'mono' }, s.lastSync ? `LAST ${clock(s.lastSync)}` : ''),
+      button('Sync now', { variant: 'ghost', iconName: 'sync', onClick: async (e) => {
         const b = e.currentTarget;
         b.disabled = true;
         const r = await syncNow();
         toast(r.skipped === 'offline' ? 'No signal. Records are safe on this phone.' : r.error ? `Sync stopped: ${r.error}` : `Sent ${plural(r.sent, 'record')} and ${plural(r.media, 'photo')}.`);
         render();
-      } }) : null),
+      } })) : null,
     expired ? notice('bad', 'Your sign-in has expired. Sign in again to send your records. They are safe on this phone.', button('Sign in', { variant: 'secondary', onClick: () => go('#/login') })) : null,
     s.conflicts.length ? notice('bad',
       h('strong', {}, `${plural(s.conflicts.length, 'record')} ${s.conflicts.length === 1 ? 'needs' : 'need'} a supervisor's review`),
@@ -212,14 +216,14 @@ async function renderHome() {
         h('button', { type: 'button', class: 'dist-open', 'aria-label': `${b.event.name}: ${served} of ${assigned} served`, onclick: () => go(`#/event/${b.event.id}`) },
           h('div', { class: 'row between top' },
             h('div', { class: 'grow' }, h('h2', {}, b.event.name), h('p', { class: 'muted small' }, `${b.event.kind === 'route' ? 'Door-to-door route' : b.site.name}${b.event.scheduled_date ? ' · ' + b.event.scheduled_date : ''}`)),
-            icon('chevron', 24)),
-          h('div', { class: 'row between wrap' }, dayPill(b) || h('span', {}), h('span', { class: 'small' }, h('strong', {}, `${served}`), ` of ${assigned} served`)),
-          progress(served, assigned)),
+            h('span', { class: 'dist-figure', 'aria-hidden': 'true' }, String(served), h('span', {}, `/${assigned}`))),
+          progress(served, assigned),
+          h('div', { class: 'row between' }, dayPill(b) || pill('Open', 'info', 'open'), h('span', { class: 'overline' }, 'Open ', icon('chevron', 16)))),
         h('div', { class: 'dist-foot row between' },
           h('span', { class: 'small muted' }, pendingHere ? `${plural(pendingHere, 'record')} to send first` : `Downloaded ${time(b.downloaded_at)}`),
           button('Refresh', { variant: 'ghost', iconName: 'download', disabled: pendingHere > 0 || !navigator.onLine, onClick: () => download(b.event.id) })));
     })
-    : [h('div', { class: 'card empty' }, icon('box', 32), h('p', {}, 'Nothing on this phone yet.'), h('p', { class: 'small' }, 'Download a distribution while on the depot Wi-Fi.'))];
+    : [h('div', { class: 'card empty' }, icon('download', 32), h('h3', {}, 'Nothing on this phone yet.'), h('p', { class: 'muted' }, 'Download a distribution below while on the depot Wi-Fi.'))];
 
   const available = h('div', {});
   if (!navigator.onLine) {
@@ -239,13 +243,14 @@ async function renderHome() {
     }).catch((err) => available.replaceChildren(h('p', { class: 'muted' }, err.message)));
   }
 
-  screen({ title: 'Field Distribution' },
-    can && !can.field ? notice('warn', h('strong', {}, 'This account has no field role yet'), h('p', {}, 'Ask an administrator to give you the PoD Field Officer role before you download a distribution.')) : null,
+  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  screen({ title: 'Your day', subtitle: today },
+    can && !can.field ? notice('warn', h('strong', {}, 'This account has no field role yet'), h('p', {}, 'Ask an administrator to give you the Invendis Field Officer role before you download a distribution.')) : null,
     syncCard,
-    h('h2', { class: 'section-title' }, 'Your distributions'), yours,
+    h('h2', { class: 'section-title' }, 'Your distributions', h('span', { class: 'count' }, String(bundles.length))), yours,
     h('h2', { class: 'section-title' }, 'Download for the field'), available,
     h('h2', { class: 'section-title' }, 'Account'),
-    h('div', { class: 'card row between wrap' },
+    h('div', { class: 'row between wrap' },
       h('div', { class: 'row' }, h('span', { class: 'avatar' }, icon('user', 20)), h('span', { class: 'small' }, user || '')),
       h('div', { class: 'row' },
         !can || can.review_conflicts ? button('Review conflicts', { variant: 'ghost', iconName: 'shield', onClick: () => go('#/review') }) : null,
@@ -304,7 +309,7 @@ function waitingNotices(outbox) {
   const forbidden = outbox.filter((r) => r.status === 'pending' && r.result?.status === 'forbidden');
   const roleNotice = forbidden.length
     ? notice('bad', h('strong', {}, `${plural(forbidden.length, 'record')} can't be sent from this account`),
-      h('p', {}, 'Your account doesn\'t have the role for them yet (PoD Field Officer). They stay safe on this phone. Ask an administrator to give you the role, then press Sync now.'))
+      h('p', {}, 'Your account doesn\'t have the role for them yet (Invendis Field Officer). They stay safe on this phone. Ask an administrator to give you the role, then press Sync now.'))
     : null;
   return [roleNotice, ...outbox.filter((r) => r.status === 'pending' && r.result && ['deferred', 'unbalanced'].includes(r.result.status)).map((r) => {
     if (r.result.status === 'deferred') {
@@ -389,7 +394,7 @@ async function renderEvent(eventId) {
   };
 
   const codeInput = h('input', { type: 'text', placeholder: 'FBP1.…', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false' });
-  const typed = h('form', { class: 'card stack', hidden: true, onsubmit: (e) => { e.preventDefault(); useCode(codeInput.value); } },
+  const typed = h('form', { class: 'card boxed stack', hidden: true, onsubmit: (e) => { e.preventDefault(); useCode(codeInput.value); } },
     field('Code printed under the QR', codeInput, 'Type it exactly as printed, with the dots.'),
     button('Check card', { variant: 'secondary', type: 'submit', block: true }));
 
@@ -405,8 +410,8 @@ async function renderEvent(eventId) {
   search.addEventListener('input', draw);
   draw();
 
-  const hero = h('section', { class: 'card' },
-    h('div', { class: 'hero' }, h('span', { class: 'hero-number' }, String(served)), h('span', { class: 'hero-label' }, `of ${assigned} farmers served`)),
+  const hero = h('section', { class: 'stack', 'aria-label': `${served} of ${assigned} farmers served` },
+    h('div', { class: 'hero', 'aria-hidden': 'true' }, h('span', { class: 'hero-number' }, String(served)), h('span', { class: 'hero-of' }, `/${assigned}`), h('span', { class: 'hero-label' }, 'Farmers served')),
     progress(served, assigned),
     h('div', { class: 'row wrap' }, dayPill(bundle), pill(`${assigned - served} to go`, 'neutral')));
 
@@ -436,7 +441,7 @@ async function renderEvent(eventId) {
 
   const endOfDay = state === 'open' ? [
     h('h2', { class: 'section-title' }, 'During and at the end of the day'),
-    h('div', { class: 'card stack' },
+    h('div', { class: 'stack' },
       button('Damaged or missing stock', { variant: 'secondary', iconName: 'box', block: true, onClick: () => go(`#/discrepancy/${eventId}`) }),
       button('Close the day', { variant: 'danger', iconName: 'flag', block: true, onClick: () => go(`#/close/${eventId}`) }),
       bundle.local?.joined && !bundle.local?.opened ? h('p', { class: 'hint' }, 'This phone joined the day. Usually the phone that opened it does the closing count.') : null),
@@ -444,7 +449,7 @@ async function renderEvent(eventId) {
 
   screen({ title: bundle.event.name, subtitle: bundle.event.kind === 'route' ? 'Door-to-door route' : bundle.site.name, back: '#/', actions },
     hero, banner, message, typed,
-    h('h2', { class: 'section-title' }, 'Farmers'),
+    h('h2', { class: 'section-title' }, 'Farmers', h('span', { class: 'count' }, String(assigned))),
     h('div', { class: 'search' }, icon('search', 20), search),
     list, endOfDay);
   paintProgress();
@@ -483,21 +488,20 @@ async function renderHandover(eventId, beneficiaryId) {
   const card = scanned && scanned.eventId === eventId && scanned.beneficiaryId === beneficiaryId ? scanned : null;
   const back = `#/event/${eventId}`;
 
-  const header = h('section', { class: 'card' },
-    h('div', { class: 'row top' },
-      h('span', { class: 'avatar' }, initials(farmer.name)),
-      h('div', { class: 'grow' },
-        h('h1', {}, farmer.name),
-        h('p', { class: 'muted' }, [sexLabel(farmer.sex), farmer.birth_year ? `born ${farmer.birth_year}` : '', farmer.village, farmer.farmer_ref].filter(Boolean).join(' · ')),
-        card ? pill('Card checked', 'ok', 'check') : pill('No card', 'warn'))));
+  const header = h('section', { class: 'passenger' },
+    h('span', { class: 'avatar' }, initials(farmer.name)),
+    h('div', { class: 'grow' },
+      card ? pill('Card checked', 'ok', 'check') : pill('No card', 'warn', 'alert'),
+      h('p', { class: 'muted' }, [sexLabel(farmer.sex), farmer.birth_year ? `born ${farmer.birth_year}` : '', farmer.village].filter(Boolean).join(' · ')),
+      farmer.farmer_ref ? h('p', { class: 'mono' }, farmer.farmer_ref) : null));
 
   const open_ = farmer.entitlements.filter((e) => remainingOf(e) > 0 && ['open', 'partially_collected'].includes(e.status));
   if (!open_.length) {
-    screen({ title: farmer.name, back }, header, notice('ok', 'This farmer has collected everything for this distribution.'));
+    screen({ title: farmer.name, subtitle: bundle.event.name, back }, header, notice('ok', 'This farmer has collected everything for this distribution.'));
     return;
   }
   if (dayState(bundle) !== 'open') {
-    screen({ title: farmer.name, back }, header, notice('warn', dayState(bundle) === 'planned' ? 'The day has not been opened yet, so nothing can be handed over.' : 'The day has been closed on this phone, so nothing more can be handed over.'));
+    screen({ title: farmer.name, subtitle: bundle.event.name, back }, header, notice('warn', dayState(bundle) === 'planned' ? 'The day has not been opened yet, so nothing can be handed over.' : 'The day has been closed on this phone, so nothing more can be handed over.'));
     return;
   }
 
@@ -554,7 +558,7 @@ async function renderHandover(eventId, beneficiaryId) {
     const lotSelect = h('select', { 'aria-label': `Lot for ${item.name}`, onchange: (ev) => { line.lot = ev.target.value; update(); } },
       lots.map((s) => {
         const why = recalled.has(`${s.sku}|${s.lot}`) ? ' (recalled: do not use)' : s.expiry && s.expiry < today ? ` (expired ${s.expiry})` : '';
-        return h('option', { value: s.lot, disabled: !!why, selected: s.lot === line.lot }, `Lot ${s.lot || '–'} · ${number(s.quantity)} left${why}`);
+        return h('option', { value: s.lot, disabled: !!why, selected: s.lot === line.lot }, `${s.lot || '–'} · ${number(s.quantity)} left${why}`);
       }));
 
     itemRows.push(h('div', { class: 'line-item' },
@@ -752,17 +756,18 @@ async function renderReceipt(clientId) {
   const items = Object.fromEntries((bundle?.items || []).map((i) => [i.sku, i]));
   const sent = record.status === 'synced';
 
-  screen({ title: 'Recorded', back: `#/event/${record.event}`, actions: actionBar(null, button('Next farmer', { variant: 'primary', iconName: 'scan', onClick: () => go(`#/event/${record.event}`) })) },
-    h('section', { class: 'success' },
-      h('div', { class: 'success-mark' }, icon('check', 52)),
-      h('h1', {}, 'Handover recorded'),
-      h('p', { class: 'muted' }, farmer?.name || record.payload.beneficiary)),
-    h('section', { class: 'card' },
+  screen({ title: 'Recorded', head: false, back: `#/event/${record.event}`, actions: actionBar(null, button('Next farmer', { variant: 'primary', iconName: 'scan', onClick: () => go(`#/event/${record.event}`) })) },
+    h('section', { class: 'receipt' },
+      h('span', { class: 'stamp', 'aria-hidden': 'true' }, icon('check', 26), 'Recorded'),
+      h('div', {},
+        h('p', { class: 'overline' }, bundle?.event.name || ''),
+        h('h1', {}, 'Handover recorded'),
+        h('p', { class: 'brand-line' }, farmer?.name || record.payload.beneficiary)),
       h('ul', { class: 'checklist' }, record.payload.lines.map((l) => {
         const item = items[l.sku];
-        return h('li', {}, icon('check', 18), `${item ? plural(l.quantity, item.unit) : number(l.quantity)} · ${item?.name || l.sku}${l.lot ? ` (lot ${l.lot})` : ''}`);
+        return h('li', {}, icon('check', 18), h('span', {}, h('strong', {}, item ? plural(l.quantity, item.unit) : number(l.quantity)), ` ${item?.name || l.sku}${l.lot ? ` · lot ${l.lot}` : ''}`));
       })),
-      h('p', { class: 'small muted' }, `${clock(record.payload.captured_at)} · record ${clientId}`)),
+      h('div', { class: 'receipt-meta' }, h('span', {}, clock(record.payload.captured_at)), h('span', {}, clientId))),
     notice(sent ? 'ok' : 'info', sent ? 'Sent to the office.' : 'Safe on this phone. It will be sent when there is signal.'));
 }
 
@@ -815,10 +820,8 @@ async function renderAttempt(eventId, beneficiaryId) {
     go(`#/event/${eventId}`);
   });
 
-  screen({ title: 'Not delivered', subtitle: farmer.name, back: `#/event/${eventId}`, actions: actionBar(null, save) },
-    h('section', { class: 'card stack' },
-      h('h1', {}, farmer.name),
-      h('p', { class: 'muted' }, farmer.village || ''),
+  screen({ title: 'Not delivered', subtitle: `${farmer.name}${farmer.village ? ' · ' + farmer.village : ''}`, back: `#/event/${eventId}`, actions: actionBar(null, save) },
+    h('section', { class: 'stack' },
       field('Why', reason),
       button('Take a photo (optional)', { variant: 'secondary', iconName: 'camera', block: true, onClick: () => photoInput.click() }), photoInput, thumbs));
 }
@@ -880,12 +883,12 @@ async function renderCount(eventId, kind) {
 
   screen({ title: kind === 'open' ? 'Open the day' : 'Close the day', subtitle: bundle.event.name, back: `#/event/${eventId}`, actions: actionBar(status, save) },
     h('section', { class: 'card' },
-      h('h1', {}, kind === 'open' ? 'Opening count' : 'Closing count'),
       h('p', { class: 'muted' }, kind === 'open'
         ? 'Count every item and lot at the distribution point before handing anything over. Enter 0 for anything not here.'
         : 'Count what is left of every item and lot. Handovers recorded on other phones are not in this phone\'s figures: they are counted when those phones sync.'),
       rows),
-    h('section', { class: 'card stack' }, w1.box, w2.box));
+    h('h2', { class: 'section-title' }, 'Witnesses'),
+    h('section', { class: 'stack' }, w1.box, w2.box));
 
   w1.attach(update);
   w2.attach(update);
@@ -981,7 +984,7 @@ async function renderDiscrepancy(eventId) {
   });
 
   screen({ title: 'Damaged or missing stock', subtitle: bundle.event.name, back: `#/event/${eventId}`, actions: actionBar(null, save) },
-    h('section', { class: 'card stack' },
+    h('section', { class: 'stack' },
       h('p', { class: 'muted' }, 'Torn, wet, spoilt, stolen or given out by mistake: it comes out of the stock and counts in the closing.'),
       field('Item and lot', line),
       field('How many', quantity),
@@ -1068,16 +1071,14 @@ async function renderConflict(id) {
       : existing.opening_stock ? [h('p', { class: 'small' }, 'Opening count'), linesList(existing.opening_stock), existing.closing_stock ? [h('p', { class: 'small' }, 'Closing count'), linesList(existing.closing_stock)] : null]
         : h('p', { class: 'muted small' }, 'Nothing for this farmer on this day.'));
 
-  const top = h('section', { class: 'card' },
-    h('div', { class: 'row between top wrap' },
-      h('div', { class: 'grow' },
-        h('h1', {}, CONFLICT_HEADLINES[c.error] || 'Record not accepted'),
-        h('p', { class: 'muted' }, [c.farmer?.name, c.farmer?.village, c.event?.name].filter(Boolean).join(' · '))),
-      c.status === 'resolved' ? pill('Resolved', 'ok', 'check') : pill(KIND_LABELS[c.kind] || c.kind, 'warn')),
+  const headline = CONFLICT_HEADLINES[c.error] || 'Record not accepted';
+  const overline = [c.farmer?.name, c.farmer?.village, c.event?.name].filter(Boolean).join(' · ');
+  const top = h('section', { class: 'stack' },
+    c.status === 'resolved' ? pill('Resolved', 'ok', 'check') : pill(KIND_LABELS[c.kind] || c.kind, 'warn', 'alert'),
     notice(c.status === 'resolved' ? 'ok' : 'warn', c.message));
 
   if (c.status === 'resolved') {
-    screen({ title: 'Conflict', back: '#/review', wide: true }, top,
+    screen({ title: headline, subtitle: overline, back: '#/review', wide: true }, top,
       h('section', { class: 'card' }, h('h3', {}, RESOLUTIONS[c.resolution]?.[0] || c.resolution), h('p', {}, c.resolution_notes), h('p', { class: 'small muted' }, `Resolved ${time(c.resolved_at)}`)),
       h('div', { class: 'compare' }, phoneRecord, serverRecord));
     return;
@@ -1085,7 +1086,7 @@ async function renderConflict(id) {
 
   const can = await permissions();
   if (can && !can.resolve_conflicts) {
-    screen({ title: 'Conflict', subtitle: c.event?.name, back: '#/review', wide: true }, top,
+    screen({ title: headline, subtitle: overline, back: '#/review', wide: true }, top,
       h('div', { class: 'compare' }, phoneRecord, serverRecord),
       notice('info', 'Your role can look at conflicts but not resolve them. A supervisor or programme manager decides.'));
     return;
@@ -1118,6 +1119,6 @@ async function renderConflict(id) {
     }
   });
 
-  screen({ title: 'Conflict', subtitle: c.event?.name, back: '#/review', wide: true, actions: actionBar(null, resolve) },
+  screen({ title: headline, subtitle: overline, back: '#/review', wide: true, actions: actionBar(null, resolve) },
     top, h('div', { class: 'compare' }, phoneRecord, serverRecord), options, error);
 }

@@ -1,13 +1,13 @@
-# Proof of Delivery (PoD) extension
+# Invendis
 
-A Fleetbase extension for proof of delivery, built first for **agricultural input distribution** (NGO, project and government programmes) in English-speaking West Africa, with **Sierra Leone as the default** country.
+**Invendis** is a Fleetbase extension for proof of delivery (PoD), built first for **agricultural input distribution** (NGO, project and government programmes) in English-speaking West Africa, with **Sierra Leone as the default** country.
 
 Design documents (in this repository):
 - [`docs/proof-of-delivery/DESIGN.md`](../../docs/proof-of-delivery/DESIGN.md): the generic PoD module
 - [`docs/proof-of-delivery/AGRI-INPUTS.md`](../../docs/proof-of-delivery/AGRI-INPUTS.md): the agricultural inputs profile
 - [`docs/proof-of-delivery/REPORTING-AUDIT.md`](../../docs/proof-of-delivery/REPORTING-AUDIT.md): reporting and audit rules
 
-## What's built (v0.7.0)
+## What's built (v0.8.0)
 
 | Area | Design ref | Status |
 |---|---|---|
@@ -27,10 +27,10 @@ Design documents (in this repository):
 | **Truck trips**: load (count, lots, seals, waybill, pesticides kept apart) → depart → arrive → receive (good and damaged counts, seal check) → close; shortages, damage and excess become discrepancies that must be explained and resolved; broken seals must be explained; the loader can't receive or close; slow trips flagged; sealed with a hash | AGRI §4, AR-01, AR-02, AR-23 | Done (Fleet-Ops orders can be linked, not created) |
 | **Distribution days**: assign farmers by area, village or list; witnessed opening count; handovers by card scan or ID with identity levels, remaining-entitlement checks, expired and recalled lots refused, restricted products for trained farmers only, proof policy (photo, mark or signature, witness for proxy or L1, safety acknowledgement for pesticides); retries can't issue twice; location checks; sealed records | AGRI §7.2, §8, §9 | Done |
 | **Door-to-door routes**: handovers at the household (200 m check), failed attempts with reasons, reassignment to a distribution point after the maximum attempts, moved/deceased sent to registry review | AGRI §3.2 | Done |
-| **Offline field app** at `/pod-field/`: an installable web app for Android (no app store). It downloads a distribution on depot Wi-Fi; checks cards offline (camera QR or typed code); records handovers with identity levels, quantities, lots, photos, signatures or marks, witnesses and the pesticide safety briefing; records failed door-to-door visits; and syncs by itself when there's signal. See [`field-app/README.md`](field-app/README.md). | DESIGN §6.6, AGRI §7.2, §8, §13 | Done |
+| **Invendis field app** at `/pod-field/`: an installable web app for Android (no app store). It downloads a distribution on depot Wi-Fi; checks cards offline (camera QR or typed code); records handovers with identity levels, quantities, lots, photos, signatures or marks, witnesses and the pesticide safety briefing; records failed door-to-door visits; and syncs by itself when there's signal. Designed as "field signage" for use in hard sun: see [`field-app/README.md`](field-app/README.md). | DESIGN §6.6, AGRI §7.2, §8, §13 | Done |
 | **Opening and closing the day from the phone, offline**: a witnessed opening count (other phones join it), damaged or missing stock, and a witnessed closing count. On the server, handovers from joined phones wait for the opening, and a closing that doesn't balance yet waits for the other phones or a discrepancy, then goes through by itself. | AGRI §11 | Done |
 | **Supervisor review of sync conflicts**, in the field app (**Review conflicts**) and through the API: the record as made on the phone (lines, photos, signatures) next to what the server already holds; the supervisor records it as missing stock (only while the day is open; afterwards the loss belongs in the closing), goods taken back, or reviewed. Notes are required, and whoever made the record can't resolve it. | DESIGN §6.6.7, REPORTING §7 | Done |
-| **Roles and permissions** in Fleetbase IAM: six PoD roles (below); every API route needs a permission; transporters see only their own trips; field records an account may not send stay on the phone | REPORTING §2 | Done |
+| **Roles and permissions** in Fleetbase IAM: six Invendis roles (below); every API route needs a permission; transporters see only their own trips; field records an account may not send stay on the phone | REPORTING §2 | Done |
 | **Field sync API**: offline bundle, batch sync processed once each in capture order, conflicts kept for review, photo and signature uploads checked against their SHA-256, `late_sync` and `clock_ahead` flags | DESIGN §6.6 | Done |
 | **Closing and the day report**: witnessed closing count reconciled per item and lot (refused until every unit is accounted for), leftover stock returned to the site, totals by sex and age band, report as JSON or PDF in the country's local time, sealed with a hash | AGRI §11, REPORTING R-02 | Done |
 | **Stock reconciliation** per sku and lot | AGRI §11 | Done (engine) |
@@ -92,12 +92,12 @@ Defined in [`server/src/Auth/Schemas/Pod.php`](server/src/Auth/Schemas/Pod.php).
 
 | Role | For | Can | Can't |
 |---|---|---|---|
-| **PoD Programme Manager** | Programme staff at head office | Import farmer lists, verify farmers, generate entitlements, print cards, set up sites and distribution days, run stores and trips, review conflicts and discrepancies, reports | Record handovers in the field |
-| **PoD Supervisor** | Field supervisors | Work distribution days like an officer, review conflicts, resolve discrepancies, read everything | Set up programmes, import lists |
-| **PoD Field Officer** | Officers with the field app | Open and close the day, hand over, record damaged or missing stock | Review or resolve anything, set up anything |
-| **PoD Storekeeper** | Warehouse and store staff | Receive supplier deliveries, create, load, receive and close trips, record discrepancies | Resolve discrepancies (a supervisor does), hand over |
-| **PoD Transporter** | Hired truckers and staff drivers | See their own trips, mark departure and arrival | Anything else; other trips answer "not found" |
-| **PoD Monitor** | M&E officers, auditors, third-party monitors | Read everything, including photos, conflicts and reports, and export reports | Change anything |
+| **Invendis Programme Manager** | Programme staff at head office | Import farmer lists, verify farmers, generate entitlements, print cards, set up sites and distribution days, run stores and trips, review conflicts and discrepancies, reports | Record handovers in the field |
+| **Invendis Supervisor** | Field supervisors | Work distribution days like an officer, review conflicts, resolve discrepancies, read everything | Set up programmes, import lists |
+| **Invendis Field Officer** | Officers with the field app | Open and close the day, hand over, record damaged or missing stock | Review or resolve anything, set up anything |
+| **Invendis Storekeeper** | Warehouse and store staff | Receive supplier deliveries, create, load, receive and close trips, record discrepancies | Resolve discrepancies (a supervisor does), hand over |
+| **Invendis Transporter** | Hired truckers and staff drivers | See their own trips, mark departure and arrival | Anything else; other trips answer "not found" |
+| **Invendis Monitor** | M&E officers, auditors, third-party monitors | Read everything, including photos, conflicts and reports, and export reports | Change anything |
 
 Rules that hold whatever the role:
 

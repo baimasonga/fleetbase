@@ -2,7 +2,7 @@
 
 /*
 |--------------------------------------------------------------------------
-| Proof of Delivery (PoD) extension configuration
+| Invendis (proof of delivery) extension configuration
 |--------------------------------------------------------------------------
 |
 | Design: docs/proof-of-delivery/DESIGN.md, AGRI-INPUTS.md and

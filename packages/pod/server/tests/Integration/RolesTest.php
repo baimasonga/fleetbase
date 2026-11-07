@@ -7,7 +7,7 @@ use Fleetbase\Pod\Models\Programme;
 use Illuminate\Support\Facades\Route;
 
 /**
- * Who may do what through the API, by PoD role (Auth/Schemas/Pod.php).
+ * Who may do what through the API, by Invendis role (Auth/Schemas/Pod.php).
  */
 final class RolesTest extends IntegrationTestCase
 {
@@ -87,7 +87,7 @@ final class RolesTest extends IntegrationTestCase
         $this->as(self::NO_ROLE)->getJson('int/v1/pod/programmes')
             ->assertStatus(403)
             ->assertJson(['error' => 'forbidden', 'permission' => 'pod list programme'])
-            ->assertJsonFragment(['errors' => ['Your account is not allowed to do this (pod list programme). Ask an administrator to give you the right PoD role.']]);
+            ->assertJsonFragment(['errors' => ['Your account is not allowed to do this (pod list programme). Ask an administrator to give you the right Invendis role.']]);
         $this->as(self::NO_ROLE)->getJson('int/v1/pod/countries')->assertOk();
         $this->assertSame(array_fill_keys(['field', 'open_day', 'close_day', 'hand_over', 'record_stock', 'review_conflicts', 'resolve_conflicts'], false), $this->as(self::NO_ROLE)->getJson('int/v1/pod/me')->json('can'));
     }

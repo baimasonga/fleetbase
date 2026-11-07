@@ -51,11 +51,11 @@ final class CreateAdminTest extends IntegrationTestCase
         $this->artisan('pod:create-admin', ['--email' => 'admin@example.org'])
             ->expectsQuestion('Password (not shown)', 'Kenema-Rice-2027')
             ->expectsQuestion('Same password again', 'Kenema-Rice-2027')
-            ->expectsOutput('Created the super administrator admin@example.org for "Field Distribution". Sign in to the console with it.')
+            ->expectsOutput('Created the super administrator admin@example.org for "Invendis". Sign in to the console with it.')
             ->doesntExpectOutputToContain('Kenema-Rice-2027')
             ->assertSuccessful();
 
-        $this->assertSame([['email' => 'admin@example.org', 'name' => 'System Administrator', 'organisation' => 'Field Distribution', 'password' => 'Kenema-Rice-2027']], $this->accounts->calls);
+        $this->assertSame([['email' => 'admin@example.org', 'name' => 'System Administrator', 'organisation' => 'Invendis', 'password' => 'Kenema-Rice-2027']], $this->accounts->calls);
     }
 
     public function testRefusesMismatchedOrWeakPasswordsAndChangesNothing(): void

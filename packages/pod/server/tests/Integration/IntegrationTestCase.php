@@ -24,7 +24,7 @@ abstract class IntegrationTestCase extends TestCase
         // Laravel silently dropping it (this hid a bug in attempt counting).
         \Illuminate\Database\Eloquent\Model::preventSilentlyDiscardingAttributes();
 
-        // Stand-in for Fleetbase IAM: the PoD roles, given per test user.
+        // Stand-in for Fleetbase IAM: the Invendis roles, given per test user.
         $this->app->scoped(Gate::class, fn () => new RoleGate(self::ROLES));
     }
 
@@ -90,11 +90,11 @@ abstract class IntegrationTestCase extends TestCase
 
     public const ROLES = [
         self::STOREKEEPER     => ['Administrator'],
-        self::RECEIVER        => ['PoD Storekeeper'],
-        self::SUPERVISOR_USER => ['PoD Supervisor'],
-        self::OFFICER         => ['PoD Field Officer'],
-        self::TRANSPORTER     => ['PoD Transporter'],
-        self::MONITOR         => ['PoD Monitor'],
+        self::RECEIVER        => ['Invendis Storekeeper'],
+        self::SUPERVISOR_USER => ['Invendis Supervisor'],
+        self::OFFICER         => ['Invendis Field Officer'],
+        self::TRANSPORTER     => ['Invendis Transporter'],
+        self::MONITOR         => ['Invendis Monitor'],
     ];
 
     protected function asCompany(string $company = self::COMPANY, string $user = self::STOREKEEPER): static

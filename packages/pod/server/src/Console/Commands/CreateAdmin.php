@@ -20,7 +20,7 @@ class CreateAdmin extends Command
     protected $signature = 'pod:create-admin
         {--email= : Sign-in email (default: POD_ADMIN_EMAIL)}
         {--name=System Administrator : Display name}
-        {--organisation= : Organisation for a new account (default: POD_ORGANISATION, else "Field Distribution")}
+        {--organisation= : Organisation for a new account (default: POD_ORGANISATION, else "Invendis")}
         {--reset-password : For an existing account, set a new password}';
 
     protected $description = 'Create or repair the super administrator account (password asked for, never on the command line)';
@@ -43,7 +43,7 @@ class CreateAdmin extends Command
             }
         }
 
-        $organisation = (string) ($this->option('organisation') ?: env('POD_ORGANISATION', 'Field Distribution'));
+        $organisation = (string) ($this->option('organisation') ?: env('POD_ORGANISATION', 'Invendis'));
 
         try {
             $result = $accounts->ensure($email, (string) $this->option('name'), $organisation, $password);

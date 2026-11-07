@@ -26,7 +26,7 @@ class RequirePermission
         return response()->json([
             'error'      => 'forbidden',
             'permission' => $names[0],
-            'errors'     => ['Your account is not allowed to do this (' . $names[0] . '). Ask an administrator to give you the right PoD role.'],
+            'errors'     => ['Your account is not allowed to do this (' . $names[0] . '). Ask an administrator to give you the right Invendis role.'],
         ], 403);
     }
 }
