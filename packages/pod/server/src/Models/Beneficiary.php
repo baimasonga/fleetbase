@@ -19,7 +19,7 @@ class Beneficiary extends Model
         'company_uuid', 'programme_uuid', 'type', 'farmer_ref', 'name', 'sex', 'birth_year',
         'phone', 'phone_extra', 'id_type', 'id_last4', 'id_hash',
         'admin_1', 'admin_2', 'admin_3', 'admin_4', 'village', 'group_name',
-        'household_size', 'farm_size', 'crop', 'notes', 'latitude', 'longitude',
+        'household_size', 'farm_size', 'crop', 'livestock', 'notes', 'latitude', 'longitude',
         'household_members', 'proxy', 'photo_file_uuid', 'card_issue', 'trained_restricted_products',
         'status', 'verification_status', 'verification_method', 'verified_at', 'verified_by_uuid', 'consent_at',
         'source', 'source_file_uuid', 'import_batch_uuid', 'meta',
@@ -32,6 +32,7 @@ class Beneficiary extends Model
         'latitude'                    => 'float',
         'longitude'                   => 'float',
         'household_members'           => 'array',
+        'livestock'                   => 'array',
         'proxy'                       => 'array',
         'source'                      => 'array',
         'meta'                        => 'array',
@@ -48,6 +49,42 @@ class Beneficiary extends Model
     public function programme()
     {
         return $this->belongsTo(Programme::class, 'programme_uuid', 'uuid');
+    }
+
+    public function entitlements()
+    {
+        return $this->hasMany(Entitlement::class, 'beneficiary_uuid', 'uuid');
+    }
+
+    public function cardEvents()
+    {
+        return $this->hasMany(CardEvent::class, 'beneficiary_uuid', 'uuid')->orderBy('id');
+    }
+
+    public function isVerified(): bool
+    {
+        return $this->verification_status === 'verified';
+    }
+
+    /**
+     * The fields EntitlementCalculator reads.
+     */
+    public function toEntitlementInput(): array
+    {
+        return [
+            'type'                        => $this->type,
+            'sex'                         => $this->sex,
+            'crop'                        => $this->crop,
+            'group_name'                  => $this->group_name,
+            'admin_1'                     => $this->admin_1,
+            'admin_2'                     => $this->admin_2,
+            'admin_3'                     => $this->admin_3,
+            'admin_4'                     => $this->admin_4,
+            'household_size'              => $this->household_size,
+            'farm_size'                   => $this->farm_size,
+            'livestock'                   => $this->livestock ?? [],
+            'trained_restricted_products' => $this->trained_restricted_products !== null,
+        ];
     }
 
     /**

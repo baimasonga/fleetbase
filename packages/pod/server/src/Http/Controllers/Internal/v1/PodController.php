@@ -2,6 +2,7 @@
 
 namespace Fleetbase\Pod\Http\Controllers\Internal\v1;
 
+use Fleetbase\Pod\Models\Beneficiary;
 use Fleetbase\Pod\Models\ImportBatch;
 use Fleetbase\Pod\Models\Programme;
 use Illuminate\Routing\Controller;
@@ -36,6 +37,13 @@ abstract class PodController extends Controller
     protected function batch(string $id): ImportBatch
     {
         return ImportBatch::where('company_uuid', $this->companyUuid())
+            ->where(fn ($q) => $q->where('public_id', $id)->orWhere('uuid', $id))
+            ->firstOrFail();
+    }
+
+    protected function beneficiary(string $id): Beneficiary
+    {
+        return Beneficiary::where('company_uuid', $this->companyUuid())
             ->where(fn ($q) => $q->where('public_id', $id)->orWhere('uuid', $id))
             ->firstOrFail();
     }

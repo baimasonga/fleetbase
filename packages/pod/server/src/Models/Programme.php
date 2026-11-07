@@ -32,6 +32,40 @@ class Programme extends Model
         return $this->hasMany(Beneficiary::class, 'programme_uuid', 'uuid');
     }
 
+    public function items()
+    {
+        return $this->hasMany(ProgrammeItem::class, 'programme_uuid', 'uuid')->orderBy('sort')->orderBy('id');
+    }
+
+    public function entitlements()
+    {
+        return $this->hasMany(Entitlement::class, 'programme_uuid', 'uuid');
+    }
+
+    /**
+     * Entitlement rules (see EntitlementCalculator for the format).
+     */
+    public function entitlementRules(): array
+    {
+        return $this->rules['entitlements'] ?? [];
+    }
+
+    /**
+     * Whether entitlements may be created before field verification, with
+     * verification done at the first handover (AGRI-INPUTS.md §7.1 step 4).
+     */
+    public function allowsUnverifiedEntitlements(): bool
+    {
+        return (bool) ($this->rules['verify_on_first_handover'] ?? false);
+    }
+
+    public function defaultDeliveryModel(): string
+    {
+        return in_array($this->rules['delivery_model'] ?? null, ['distribution_point', 'door_to_door'], true)
+            ? $this->rules['delivery_model']
+            : 'distribution_point';
+    }
+
     public function importBatches()
     {
         return $this->hasMany(ImportBatch::class, 'programme_uuid', 'uuid');

@@ -30,7 +30,9 @@ spl_autoload_register(function (string $class) {
     }
 });
 
-// The config file uses Laravel's env() helper; outside Laravel, read the real environment.
+// The config file calls Laravel's env(). Laravel's helper is normally loaded
+// with the vendor directory (milon/barcode brings illuminate/support, which
+// needs vlucas/phpdotenv). Without it, read the real environment.
 if (!function_exists('env')) {
     function env(string $key, mixed $default = null): mixed
     {

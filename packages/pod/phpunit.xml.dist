@@ -9,7 +9,7 @@
             <directory suffix="Test.php">./server/tests/Unit</directory>
         </testsuite>
     </testsuites>
-    <source>
+    <source restrictDeprecations="true">
         <include>
             <directory suffix=".php">./server/src/Support</directory>
         </include>
