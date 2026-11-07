@@ -165,6 +165,16 @@ The checks need no secrets: Railway pulls from GitHub, and GitHub never needs Ra
 Changes to the infrastructure itself (a new service or variable) go into `.railway/railway.ts` and are applied with `railway config plan` and `railway config apply`; a push alone doesn't apply them. Railway's [railwayapp/config](https://github.com/railwayapp/config) GitHub Action can do that on merge if you want it automated; it needs a Railway token stored as a GitHub secret.
 
 
+## If a deploy fails
+
+| What the log says | What to do |
+|---|---|
+| *Railpack could not determine how to build the app* | The service isn't building with Docker: add the variable `RAILWAY_DOCKERFILE_PATH` (see [`variables.md`](variables.md)), and check the repository is `baimasonga/fleetbase`. |
+| *APP_KEY is not valid* (pre-deploy step) | `APP_KEY` must be `base64:` followed by the generated value, with nothing else. Make a new one and replace the value. |
+| *APP_URL is "https://", which is not a web address* | Generate the service's public domain (Settings → Networking), and set `APP_URL` to `https://${{RAILWAY_PUBLIC_DOMAIN}}`. |
+| *worker script has failed on restart* | A setting the web server needs is wrong. The pre-deploy step's `pod:check-runtime` names it: read the lines just above the end of the pre-deploy log. |
+| Healthcheck *service unavailable* until it gives up | The server didn't start: see the deploy log for one of the messages above. |
+
 ## Good to know
 
 - **Backups.** Turn on MySQL backups in Railway (Database → Backups), and back up the api volume too: it holds the proof photos and signatures. Keep the shared secrets in a password manager.
