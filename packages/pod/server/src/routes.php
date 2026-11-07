@@ -82,6 +82,11 @@ Route::prefix(config('pod.api.internal_prefix', 'int') . '/v1/pod')
         $router->post('field/media', 'FieldController@media');
         $router->get('events/{id}/media-status', 'FieldController@mediaStatus');
         $router->get('events/{id}/conflicts', 'FieldController@conflicts');
+
+        $router->get('conflicts', 'ConflictController@index');
+        $router->get('conflicts/{id}', 'ConflictController@show');
+        $router->post('conflicts/{id}/resolve', 'ConflictController@resolve');
+        $router->get('media/{id}', 'ConflictController@media');
     });
 
 /*
