@@ -162,7 +162,7 @@ class DistributionService
      *
      * @return array{handover: Handover, replayed: bool, remaining: list<array>}
      */
-    public function handover(DistributionEvent $event, array $input, ?string $userUuid): array
+    public function handover(DistributionEvent $event, array $input, ?string $userUuid, array $syncFlags = []): array
     {
         // A retry of a handover already recorded (same client id) returns the original.
         if (!empty($input['client_handover_id'])) {
@@ -242,6 +242,7 @@ class DistributionService
         if ($receivedBy === 'proxy') {
             $flags[] = 'proxy';
         }
+        $flags = array_merge($flags, $syncFlags);
 
         $handover = DB::transaction(function () use ($event, $programme, $beneficiary, $input, $userUuid, $lines, $here, $level, $checks, $cardValid, $govIdMatched, $receivedBy, $evidence, $distance, $flags) {
             $complete = true;
@@ -315,7 +316,7 @@ class DistributionService
      *
      * @return array{handover: Handover, attempts: int, max_attempts: int, needs_reassignment: bool, registry_review: bool}
      */
-    public function fail(DistributionEvent $event, array $input, ?string $userUuid): array
+    public function fail(DistributionEvent $event, array $input, ?string $userUuid, array $syncFlags = []): array
     {
         if (!empty($input['client_handover_id'])) {
             $existing = Handover::where('company_uuid', $event->company_uuid)->where('client_handover_id', $input['client_handover_id'])->first();
@@ -337,6 +338,7 @@ class DistributionService
         }
 
         [$distance, $flags] = $this->locationCheck($event, $beneficiary, $input);
+        $flags              = array_values(array_unique(array_merge($flags, $syncFlags)));
         $attempts           = (int) $here->max('attempts') + 1;
         $max                = $this->maxAttempts($event->programme);
         $registry           = in_array($reason, ['farmer_deceased', 'household_moved'], true);

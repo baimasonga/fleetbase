@@ -4,6 +4,7 @@ namespace Fleetbase\Pod\Http\Controllers\Internal\v1;
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
+use Fleetbase\Pod\Http\Requests\FieldRules;
 use Fleetbase\Pod\Models\DistributionEvent;
 use Fleetbase\Pod\Models\Handover;
 use Fleetbase\Pod\Services\DistributionService;
@@ -92,27 +93,7 @@ class DistributionEventController extends PodController
     public function handover(Request $request, string $id)
     {
         $event = $this->event($id);
-        $data  = $request->validate([
-            'client_handover_id'         => ['nullable', 'string', 'max:64'],
-            'card_code'                  => ['nullable', 'string', 'max:255'],
-            'beneficiary'                => ['nullable', 'string'],
-            'received_by'                => ['nullable', 'in:self,household_member,proxy'],
-            'recipient_name'             => ['nullable', 'string', 'max:191'],
-            'identity'                   => ['nullable', 'array'],
-            'identity.face_matched'      => ['nullable', 'boolean'],
-            'identity.id_last4'          => ['nullable', 'string', 'max:8'],
-            'identity.photo_taken'       => ['nullable', 'boolean'],
-            'identity.witness_confirmed' => ['nullable', 'boolean'],
-            'lines'                      => ['required', 'array', 'min:1'],
-            'lines.*.sku'                => ['required', 'string'],
-            'lines.*.lot'                => ['nullable', 'string', 'max:64'],
-            'lines.*.quantity'           => ['required', 'numeric'],
-            'evidence'                   => ['nullable', 'array'],
-            'evidence.*.type'            => ['required', 'string', 'max:32'],
-            'latitude'                   => ['nullable', 'numeric', 'between:-90,90'],
-            'longitude'                  => ['nullable', 'numeric', 'between:-180,180'],
-            'captured_at'                => ['nullable', 'date'],
-        ]);
+        $data  = $request->validate(FieldRules::handover());
 
         return $this->guarded(function () use ($event, $data) {
             $result = $this->distribution->handover($event, $data, $this->userUuid());
@@ -131,15 +112,7 @@ class DistributionEventController extends PodController
     public function failAttempt(Request $request, string $id)
     {
         $event = $this->event($id);
-        $data  = $request->validate([
-            'client_handover_id' => ['nullable', 'string', 'max:64'],
-            'beneficiary'        => ['required', 'string'],
-            'reason'             => ['required', 'string'],
-            'evidence'           => ['nullable', 'array'],
-            'latitude'           => ['nullable', 'numeric', 'between:-90,90'],
-            'longitude'          => ['nullable', 'numeric', 'between:-180,180'],
-            'captured_at'        => ['nullable', 'date'],
-        ]);
+        $data  = $request->validate(FieldRules::attempt());
 
         return $this->guarded(fn () => response()->json($this->distribution->fail($event, $data, $this->userUuid()), 201));
     }

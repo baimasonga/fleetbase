@@ -75,4 +75,18 @@ Route::prefix(config('pod.api.internal_prefix', 'int') . '/v1/pod')
         $router->post('events/{id}/discrepancies', 'DistributionEventController@discrepancy');
         $router->post('events/{id}/close', 'DistributionEventController@close');
         $router->get('events/{id}/report', 'DistributionEventController@report');
+
+        $router->get('field/events', 'FieldController@events');
+        $router->get('events/{id}/bundle', 'FieldController@bundle');
+        $router->post('field/sync', 'FieldController@sync');
+        $router->post('field/media', 'FieldController@media');
+        $router->get('events/{id}/media-status', 'FieldController@mediaStatus');
+        $router->get('events/{id}/conflicts', 'FieldController@conflicts');
     });
+
+/*
+|--------------------------------------------------------------------------
+| Offline field app (static files)
+|--------------------------------------------------------------------------
+*/
+Route::get('pod-field/{path?}', [Fleetbase\Pod\Http\Controllers\Field\FieldAppController::class, 'serve'])->where('path', '.*');
