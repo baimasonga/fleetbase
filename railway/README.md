@@ -18,7 +18,7 @@ Each service's build and start settings are in this folder (`api.toml`, `queue.t
 
 - A Railway account on a paid plan (Hobby is enough for the pilot). Seven services with a database: expect roughly US$20–40 a month at pilot size, mostly the API and MySQL. Check Railway's pricing page for current figures.
 - The Railway GitHub app given access to `baimasonga/fleetbase`.
-- The branch to deploy. Until it is merged, that's `claude/system-adoption-7v8woh`.
+- The branch to deploy: `main` once this work is merged, or `claude/system-adoption-7v8woh` until then.
 
 ## 1. Create the project and the database
 
@@ -90,9 +90,25 @@ Officers open **`https://<api domain>/pod-field/`** in Chrome on their phone, th
 - In the api service's **Deploy Logs**, the pre-deploy step ends without errors, and the last lines mention `pod:seed-admin-areas` (`1,504` areas for Sierra Leone the first time, `0 added` afterwards).
 - In **queue**, the log shows it processing jobs.
 
-## Updates
+## Deploying through GitHub
 
-Push to the branch. Railway rebuilds the services whose files changed (each `.toml` lists what it watches), and the api's pre-deploy step applies new migrations.
+Railway deploys from GitHub by itself: each service follows its branch, and every push to that branch redeploys the services whose files changed (each `.toml` lists what it watches). The api's pre-deploy step then applies any new migrations.
+
+Turn on **Wait for CI** in each service's Settings → Source (`api`, `queue`, `scheduler`, `socket`, `console`). Railway then deploys a push only once GitHub's checks have passed. The **Invendis** workflow (`.github/workflows/invendis.yml`) runs on every push that touches Invendis, the Docker build or this folder:
+
+- the unit and integration tests;
+- the field app end to end in headless Chrome (an offline day on two phones, then a supervisor's review), with the screenshots kept as an artifact;
+- the Railway config files;
+- a full build of the API image Railway deploys, checking that Invendis is inside it.
+
+A suggested flow:
+
+1. Work on a branch and open a pull request to `main`. The checks run on the pull request.
+2. Merge when they pass. Point the Railway services at `main` (Settings → Source → Branch), so production only ever runs merged work.
+3. Optionally, add a second Railway environment (for example `staging`) that follows a `staging` branch, to try changes on real infrastructure first.
+
+The checks need no secrets: Railway pulls from GitHub, and GitHub never needs Railway's credentials.
+
 
 ## Good to know
 
