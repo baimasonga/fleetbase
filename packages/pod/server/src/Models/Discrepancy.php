@@ -26,7 +26,7 @@ class Discrepancy extends Model
 
     protected $publicIdType = 'discrepancy';
 
-    protected $fillable = ['company_uuid', 'programme_uuid', 'subject_type', 'subject_uuid', 'sku', 'lot', 'quantity', 'reason', 'liable_party', 'notes', 'evidence', 'status', 'resolution', 'created_by_uuid', 'resolved_by_uuid', 'resolved_at'];
+    protected $fillable = ['company_uuid', 'programme_uuid', 'subject_type', 'subject_uuid', 'client_id', 'sku', 'lot', 'quantity', 'reason', 'liable_party', 'notes', 'evidence', 'status', 'resolution', 'created_by_uuid', 'resolved_by_uuid', 'resolved_at'];
 
     protected $casts = ['quantity' => 'float', 'evidence' => 'array', 'resolved_at' => 'datetime'];
 

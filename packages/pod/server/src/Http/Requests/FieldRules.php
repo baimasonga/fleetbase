@@ -37,6 +37,39 @@ final class FieldRules
         ];
     }
 
+    /**
+     * An opening or closing count recorded on a phone.
+     */
+    public static function count(): array
+    {
+        return [
+            'stock'                 => ['present', 'array'],
+            'stock.*.sku'           => ['required', 'string'],
+            'stock.*.lot'           => ['nullable', 'string', 'max:64'],
+            'stock.*.quantity'      => ['required', 'numeric', 'min:0'],
+            'witnesses'             => ['required', 'array', 'min:1'],
+            'witnesses.*.name'      => ['required', 'string', 'max:191'],
+            'witnesses.*.role'      => ['required', 'string'],
+            'witnesses.*.signature' => ['nullable', 'string', 'max:64'],
+            'witnesses.*.sha256'    => ['nullable', 'string', 'size:64'],
+            'captured_at'           => ['nullable', 'date'],
+        ];
+    }
+
+    public static function discrepancy(): array
+    {
+        return [
+            'sku'          => ['required', 'string'],
+            'lot'          => ['nullable', 'string', 'max:64'],
+            'quantity'     => ['required', 'numeric'],
+            'reason'       => ['required', 'string'],
+            'liable_party' => ['nullable', 'string'],
+            'notes'        => ['required', 'string', 'max:2000'],
+            'evidence'     => ['nullable', 'array'],
+            'captured_at'  => ['nullable', 'date'],
+        ];
+    }
+
     public static function attempt(): array
     {
         return [

@@ -7,7 +7,7 @@ Design documents (in this repository):
 - [`docs/proof-of-delivery/AGRI-INPUTS.md`](../../docs/proof-of-delivery/AGRI-INPUTS.md): the agricultural inputs profile
 - [`docs/proof-of-delivery/REPORTING-AUDIT.md`](../../docs/proof-of-delivery/REPORTING-AUDIT.md): reporting and audit rules
 
-## What's built (v0.4.0)
+## What's built (v0.5.0)
 
 | Area | Design ref | Status |
 |---|---|---|
@@ -27,12 +27,13 @@ Design documents (in this repository):
 | **Truck trips**: load (count, lots, seals, waybill, pesticides kept apart) → depart → arrive → receive (good and damaged counts, seal check) → close; shortages, damage and excess become discrepancies that must be explained and resolved; broken seals must be explained; the loader can't receive or close; slow trips flagged; sealed with a hash | AGRI §4, AR-01, AR-02, AR-23 | Done (Fleet-Ops orders can be linked, not created) |
 | **Distribution days**: assign farmers by area, village or list; witnessed opening count; handovers by card scan or ID with identity levels, remaining-entitlement checks, expired and recalled lots refused, restricted products for trained farmers only, proof policy (photo, mark or signature, witness for proxy or L1, safety acknowledgement for pesticides); retries can't issue twice; location checks; sealed records | AGRI §7.2, §8, §9 | Done |
 | **Door-to-door routes**: handovers at the household (200 m check), failed attempts with reasons, reassignment to a distribution point after the maximum attempts, moved/deceased sent to registry review | AGRI §3.2 | Done |
-| **Offline field app** at `/pod-field/`: an installable web app for Android (no app store). It downloads a distribution on depot Wi-Fi; checks cards offline (camera QR or typed code); records handovers with identity levels, quantities, lots, photos, signatures or marks, witnesses and the pesticide safety briefing; records failed door-to-door visits; and syncs by itself when there's signal. See [`field-app/README.md`](field-app/README.md). | DESIGN §6.6, AGRI §7.2, §8, §13 | Done (supervisors still open and close days in the console) |
+| **Offline field app** at `/pod-field/`: an installable web app for Android (no app store). It downloads a distribution on depot Wi-Fi; checks cards offline (camera QR or typed code); records handovers with identity levels, quantities, lots, photos, signatures or marks, witnesses and the pesticide safety briefing; records failed door-to-door visits; and syncs by itself when there's signal. See [`field-app/README.md`](field-app/README.md). | DESIGN §6.6, AGRI §7.2, §8, §13 | Done |
+| **Opening and closing the day from the phone, offline**: a witnessed opening count (other phones join it), damaged or missing stock, and a witnessed closing count. On the server, handovers from joined phones wait for the opening, and a closing that doesn't balance yet waits for the other phones or a discrepancy, then goes through by itself. | AGRI §11 | Done |
 | **Field sync API**: offline bundle, batch sync processed once each in capture order, conflicts kept for review, photo and signature uploads checked against their SHA-256, `late_sync` and `clock_ahead` flags | DESIGN §6.6 | Done |
 | **Closing and the day report**: witnessed closing count reconciled per item and lot (refused until every unit is accounted for), leftover stock returned to the site, totals by sex and age band, report as JSON or PDF in the country's local time, sealed with a hash | AGRI §11, REPORTING R-02 | Done |
 | **Stock reconciliation** per sku and lot | AGRI §11 | Done (engine) |
 
-Not built yet, in the order of the delivery plan: opening and closing days from the field app, registration photos, cold chain readings, the audit rules engine and verification sampling, programme reports, role-based permissions, and the console screens. The console UI (Ember engine) isn't started; everything above is available through the API.
+Not built yet, in the order of the delivery plan: a console screen to resolve sync conflicts, registration photos, cold chain readings, the audit rules engine and verification sampling, programme reports, role-based permissions, and the console screens. The console UI (Ember engine) isn't started; everything above is available through the API.
 
 ## Install (own server)
 
@@ -115,7 +116,7 @@ The extension lives in `packages/pod` of this repository.
 | GET | `events/{id}/report` | JSON, or `?format=pdf` |
 | GET | `field/events` | Open and planned distributions a phone can download |
 | GET | `events/{id}/bundle` | Everything the field app needs offline |
-| POST | `field/sync` | `{items: [{kind: handover \| attempt, event, client_handover_id, ...}]}`; one result per record: `accepted`, `replayed` or `conflict` |
+| POST | `field/sync` | `{items: [{kind: open \| handover \| attempt \| discrepancy \| close, event, client_handover_id, captured_at, ...}]}`; one result per record: `accepted`, `replayed`, `conflict`, `deferred` (the day isn't open on the server yet: send again later) or `unbalanced` (a closing that doesn't balance yet, with the lines: send again later) |
 | POST | `field/media` | Multipart `file`, `client_media_id`, `sha256`, `kind` |
 | GET | `events/{id}/media-status` | Photos and signatures expected, uploaded and missing |
 | GET | `events/{id}/conflicts` | Records made offline that the server could not accept |

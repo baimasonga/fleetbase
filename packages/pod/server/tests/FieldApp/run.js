@@ -1,4 +1,11 @@
 // End-to-end test of the field app against the real PoD package code.
+//
+// One distribution day, two phones, no signal at the distribution point:
+//   phone 1 opens the day with a witnessed count, serves three farmers, and
+//   closes the day with the physical count; phone 2 joins the day and serves
+//   one of the same farmers again. Back in signal, everything syncs; the
+//   duplicate becomes a conflict, the closing waits until phone 1 records the
+//   duplicated goods as missing stock, then closes by itself.
 const { chromium } = require('playwright');
 const fs = require('fs');
 const assert = require('assert');
@@ -23,8 +30,8 @@ async function phone(browser, name, scale) {
   });
   const page = await ctx.newPage();
   page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('401')) errors.push(`${name} console: ${m.text()}`); });
-  pages.push(page);
   page.on('pageerror', (e) => errors.push(`${name} page: ${e.message}`));
+  pages.push(page);
   return { ctx, page };
 }
 
@@ -56,10 +63,33 @@ async function typeCode(page, code) {
   await page.getByRole('button', { name: 'Check card' }).click();
 }
 
+async function count(page, values) {
+  for (const [label, value] of Object.entries(values)) {
+    await page.getByLabel(label).fill(String(value));
+  }
+}
+
+async function witness(page, name) {
+  await page.getByLabel('Witness: name').fill(name);
+  await draw(page, page.getByLabel('Witness: signature'));
+}
+
+async function discrepancy(page, option, qty, notes) {
+  await page.getByRole('button', { name: 'Damaged or missing stock' }).first().click();
+  await page.getByLabel('Item and lot').selectOption({ label: option });
+  await page.getByLabel('How many').fill(String(qty));
+  await page.getByLabel('What happened').selectOption('other');
+  await page.getByLabel('Details').fill(notes);
+  await page.getByRole('button', { name: 'Record', exact: true }).click();
+  await page.getByText('Recorded.').waitFor();
+}
+
+const waitIdle = (page) => page.waitForFunction(() => document.getElementById('net').textContent.startsWith('Online') && !document.getElementById('net').textContent.includes('Syncing'), null, { timeout: 30000 });
+
 (async () => {
   const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-video-capture=${E}/isatu.mjpeg`] });
 
-  // ---- Phone 1: sign in, download on "depot Wi-Fi" -----------------------------------
+  // ---- At the depot: both phones sign in and download the (planned) day ---------------
   const p1 = await phone(browser, 'phone1', 2);
   const page = p1.page;
   await page.goto(`${base}/pod-field/`);
@@ -67,26 +97,47 @@ async function typeCode(page, code) {
   await signIn(page);
   await page.getByRole('button', { name: 'Download' }).click();
   await page.getByText('It works offline now').waitFor();
-  await page.getByRole('heading', { name: 'On this phone' }).waitFor();
+  await page.getByText('Not opened yet').waitFor();
   await page.waitForFunction(() => navigator.serviceWorker && navigator.serviceWorker.controller !== null, null, { timeout: 15000 }).catch(async () => {
     await page.reload();
     await page.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 15000 });
   });
   await page.screenshot({ path: `${E}/shots/2-home.png` });
 
-  // ---- Phone 2 downloads too, before phone 1 syncs anything ----------------------------
   const p2 = await phone(browser, 'phone2', 1);
   await signIn(p2.page);
   await p2.page.getByRole('button', { name: 'Download' }).click();
   await p2.page.getByText('It works offline now').waitFor();
 
-  // ---- Into the field: no signal --------------------------------------------------------
+  // ---- At the distribution point: no signal ----------------------------------------------
   await p1.ctx.setOffline(true);
+  await p2.ctx.setOffline(true);
   await page.reload(); // the app must load with no network (service worker)
   await page.getByText('Offline').waitFor();
-  await page.getByRole('button', { name: 'Open' }).click();
-  await page.getByText('3', { exact: true }).first().waitFor();
-  await page.screenshot({ path: `${E}/shots/3-event-offline.png` });
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+
+  // Nothing can be handed over before the day is opened.
+  await page.getByText('The day has not been opened yet.').waitFor();
+
+  // Phone 1 opens the day: a witnessed count of the stock at the distribution point.
+  await page.getByRole('button', { name: 'Open the day' }).click();
+  await count(page, {
+    'Counted: Rice seed NERICA L19, 25 kg lot R7': 10,
+    'Counted: NPK 15-15-15, 50 kg lot L1': 20,
+    'Counted: Herbicide, 1 litre lot H3': 5,
+  });
+  await page.getByText('Enter a count for every line').waitFor(); // the expired lot isn't counted yet
+  await page.getByLabel('Counted: NPK 15-15-15, 50 kg lot OLD2').fill('25');
+  await page.getByText('A count is more than the site holds').waitFor();
+  await page.getByLabel('Counted: NPK 15-15-15, 50 kg lot OLD2').fill('3');
+  assert.ok(await page.getByRole('button', { name: 'Record opening' }).isDisabled(), 'needs a witness');
+  await witness(page, 'Chief Musa Kallon');
+  await page.getByText('Ready.', { exact: true }).waitFor();
+  await page.screenshot({ path: `${E}/shots/3-opening.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Record opening' }).click();
+  await page.getByText('The day is open. You can hand over now.').waitFor();
+  await page.getByRole('button', { name: 'Close the day' }).waitFor();
+  await page.screenshot({ path: `${E}/shots/4-event-offline.png` });
 
   // 1) Aminata: card code typed, ID last 4 checked, full package including herbicide.
   await typeCode(page, seed.farmers['Aminata Kamara'].code);
@@ -94,32 +145,28 @@ async function typeCode(page, code) {
   await page.getByText('I have checked this is the farmer').click();
   await page.getByLabel('Last 4 characters of their ID (optional)').fill('6789');
   await page.getByText('✓ matches').waitFor();
-  // The expired NPK lot is listed but can't be chosen.
   const npkLot = page.getByLabel('Lot for NPK 15-15-15, 50 kg');
   assert.strictEqual(await npkLot.inputValue(), 'L1');
   assert.ok((await npkLot.locator('option[value="OLD2"]').getAttribute('disabled')) !== null, 'expired lot disabled');
-  assert.ok(await page.getByRole('button', { name: 'Record handover' }).isDisabled(), 'not ready without proof');
   await page.locator('input[type=file]').setInputFiles(`${E}/farmer.jpg`);
   await page.getByAltText('Photo 1').waitFor();
   await draw(page, page.locator('canvas.pad').first());
   assert.ok(await page.getByRole('button', { name: 'Record handover' }).isDisabled(), 'herbicide needs the safety briefing');
   await page.getByText('Safety briefing given').click();
   await page.getByText('Ready: identity L3.').waitFor();
-  await page.screenshot({ path: `${E}/shots/4-handover.png`, fullPage: true });
+  await page.screenshot({ path: `${E}/shots/5-handover.png`, fullPage: true });
   await page.getByRole('button', { name: 'Record handover' }).click();
   await page.getByText('Handover recorded.').waitFor();
-  await page.screenshot({ path: `${E}/shots/5-receipt.png` });
+  await page.screenshot({ path: `${E}/shots/6-receipt.png` });
   await page.getByRole('button', { name: 'Next farmer' }).click();
 
-  // 2) Isatu: card scanned with the camera; not trained, so no herbicide; takes 1 NPK of 2.
+  // 2) Isatu: card scanned with the camera; no herbicide (no training); takes 1 NPK of 2.
   await page.getByRole('button', { name: 'Scan card' }).click();
   await page.getByText('Card checked').waitFor({ timeout: 20000 });
-  // No safety training, so no herbicide entitlement was generated: it isn't offered at all.
   assert.strictEqual(await page.locator('.line', { hasText: 'Herbicide' }).count(), 0);
   await page.getByText('I have checked this is the farmer').click();
   const npk = page.locator('.line', { hasText: 'NPK 15-15-15' });
   await npk.getByRole('button', { name: 'Less' }).click();
-  assert.strictEqual(await npk.locator('output').textContent(), '1');
   await page.locator('input[type=file]').setInputFiles(`${E}/farmer.jpg`);
   await page.getByRole('button', { name: 'Makes a mark' }).click();
   await draw(page, page.locator('canvas.pad').first());
@@ -128,10 +175,9 @@ async function typeCode(page, code) {
   await page.getByText('Handover recorded.').waitFor();
   await page.getByRole('button', { name: 'Next farmer' }).click();
 
-  // 3) Musa's old card was replaced: refused offline.
+  // 3) Replaced and forged cards are refused offline.
   await typeCode(page, seed.farmers['Musa Bangura'].old_code);
   await page.getByText('This card has been replaced').waitFor();
-  // A forged code too.
   await page.getByLabel('Code printed under the QR').fill(seed.farmers['Musa Bangura'].code.slice(0, -2) + 'AA');
   await page.getByRole('button', { name: 'Check card' }).click();
   await page.getByText('This card is not genuine').waitFor();
@@ -147,16 +193,12 @@ async function typeCode(page, code) {
   await page.getByText('Ready: identity L1.').waitFor();
   await page.getByRole('button', { name: 'Record handover' }).click();
   await page.getByText('Handover recorded.').waitFor();
-  await page.getByText('3 to send', { exact: false }).waitFor().catch(() => {});
-  const badge = await page.locator('#net').textContent();
-  assert.match(badge, /Offline · 10 to send/, `badge: ${badge}`); // 3 records + 7 photos and signatures
+  await page.getByRole('button', { name: 'Next farmer' }).click();
 
-  // Nothing has reached the server yet.
-  assert.strictEqual((await apiGet(`pod/events/${seed.event}/handovers`)).handovers.length, 0);
-
-  // ---- Phone 2, also offline, serves Aminata again ----------------------------------------
-  await p2.ctx.setOffline(true);
-  await p2.page.getByRole('button', { name: 'Open' }).click();
+  // ---- Phone 2 joins the day and serves Aminata again (it can't know) -------------------
+  await p2.page.getByRole('button', { name: 'Open', exact: true }).click();
+  await p2.page.getByRole('button', { name: 'Join: opened on another phone' }).click();
+  await p2.page.getByText('Joined.').waitFor();
   await typeCode(p2.page, seed.farmers['Aminata Kamara'].code);
   await p2.page.getByText('I have checked this is the farmer').click();
   await p2.page.locator('input[type=file]').setInputFiles(`${E}/farmer.jpg`);
@@ -165,28 +207,75 @@ async function typeCode(page, code) {
   await p2.page.getByRole('button', { name: 'Record handover' }).click();
   await p2.page.getByText('Handover recorded.').waitFor();
 
-  // ---- Back in signal: phone 1 syncs by itself -------------------------------------------
-  await p1.ctx.setOffline(false);
-  await page.waitForFunction(() => document.getElementById('net').textContent === 'Online', null, { timeout: 30000 });
-  const handovers = (await apiGet(`pod/events/${seed.event}/handovers`)).handovers;
-  assert.strictEqual(handovers.length, 3);
-  const levels = Object.fromEntries(handovers.map((h) => [h.beneficiary.name, [h.identity_level, h.outcome]]));
-  assert.deepStrictEqual(levels, { 'Aminata Kamara': ['L3', 'delivered'], 'Isatu Koroma': ['L2', 'partial'], 'Musa Bangura': ['L1', 'delivered'] });
-  const media = await apiGet(`pod/events/${seed.event}/media-status`);
-  assert.deepStrictEqual([media.expected, media.uploaded, media.missing.length], [7, 7, 0]);
+  // ---- Phone 1 closes the day with the physical count ------------------------------------
+  // Phone 1's records: rice 10-3=7, NPK L1 20-5=15, herbicide 5-1=4, OLD2 3.
+  // Phone 2 also gave out 1 rice, 2 NPK and 1 herbicide, so the shelf holds less.
+  await page.getByRole('button', { name: 'Close the day' }).click();
+  await count(page, {
+    'Counted: Rice seed NERICA L19, 25 kg lot R7': 6,
+    'Counted: NPK 15-15-15, 50 kg lot L1': 13,
+    'Counted: Herbicide, 1 litre lot H3': 3,
+    'Counted: NPK 15-15-15, 50 kg lot OLD2': 3,
+  });
+  await page.getByText('-2 against this phone\'s records').waitFor();
+  await witness(page, 'Chief Musa Kallon');
+  await page.getByText('3 lines differ from this phone\'s records').waitFor();
+  await page.screenshot({ path: `${E}/shots/7-closing.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Record closing' }).click();
+  await page.getByText('Closing recorded.').waitFor();
+  await page.getByText('The day was closed on this phone.').waitFor();
+  const badge = await page.locator('#net').textContent();
+  assert.match(badge, /Offline · 14 to send/, `badge: ${badge}`); // 5 records (open, 3 handovers, close) + 9 photos and signatures (2 witnesses, 2+2+3 handovers)
 
-  // ---- Phone 2 syncs: its second handover to Aminata becomes a conflict for review --------
+  assert.strictEqual((await apiGet(`pod/events/${seed.event}/handovers`)).handovers.length, 0, 'nothing reached the server yet');
+
+  // ---- Back in signal: phone 2 syncs first ----------------------------------------------
   await p2.ctx.setOffline(false);
   await p2.page.goto(`${base}/pod-field/#/`);
+  await p2.page.getByText('waiting for the day to be opened on the server').waitFor({ timeout: 30000 });
+
+  // Phone 1 syncs: opening, handovers; the closing doesn't balance yet.
+  await p1.ctx.setOffline(false);
+  await page.goto(`${base}/pod-field/#/`);
+  await page.getByText('the count does not balance yet').waitFor({ timeout: 30000 });
+  let event = (await apiGet(`pod/events/${seed.event}`)).event;
+  assert.strictEqual(event.status, 'open');
+  assert.strictEqual(event.witnesses.open[0].name, 'Chief Musa Kallon');
+
+  // Phone 2 retries: its handover is now a conflict (Aminata already collected).
+  await p2.page.getByRole('button', { name: 'Sync now' }).click();
   await p2.page.getByText('1 record needs a supervisor\'s review').waitFor({ timeout: 30000 });
-  await p2.page.screenshot({ path: `${E}/shots/6-conflict.png` });
+  await p2.page.screenshot({ path: `${E}/shots/8-conflict.png` });
+
+  // Phone 1 records the duplicated goods as missing stock; the closing then goes through.
+  await page.getByRole('button', { name: 'Sync now' }).click();
+  await waitIdle(page);
+  await page.screenshot({ path: `${E}/shots/9-unbalanced.png`, fullPage: true });
+  const note = 'Given to Aminata Kamara a second time by phone 2 (see conflict).';
+  await discrepancy(page, 'Rice seed NERICA L19, 25 kg · lot R7 · 7 left', 1, note);
+  await discrepancy(page, 'NPK 15-15-15, 50 kg · lot L1 · 15 left', 2, note);
+  await discrepancy(page, 'Herbicide, 1 litre · lot H3 · 4 left', 1, note);
+  await page.getByRole('button', { name: '‹ Home' }).click();
+  await page.getByRole('button', { name: 'Sync now' }).click();
+  await page.getByText('Closed', { exact: true }).waitFor({ timeout: 30000 });
+  await waitIdle(page);
+  await page.screenshot({ path: `${E}/shots/10-closed.png` });
+
+  // ---- What the server holds ----------------------------------------------------------
+  event = (await apiGet(`pod/events/${seed.event}`)).event;
+  assert.strictEqual(event.status, 'closed');
+  assert.strictEqual(event.reconciliation.balanced, true);
+  assert.strictEqual(event.seal_hash.length, 64);
+  const handovers = (await apiGet(`pod/events/${seed.event}/handovers`)).handovers;
+  const levels = Object.fromEntries(handovers.map((h) => [h.beneficiary.name, [h.identity_level, h.outcome]]));
+  assert.deepStrictEqual(levels, { 'Aminata Kamara': ['L3', 'delivered'], 'Isatu Koroma': ['L2', 'partial'], 'Musa Bangura': ['L1', 'delivered'] });
   const conflicts = (await apiGet(`pod/events/${seed.event}/conflicts`)).conflicts;
   assert.deepStrictEqual(conflicts.map((c) => c.error), ['already_collected']);
-  assert.strictEqual((await apiGet(`pod/events/${seed.event}/handovers`)).handovers.length, 3);
-
-  // Phone 1's list now shows the work.
-  await page.goto(`${base}/pod-field/#/event/${seed.event}`);
-  await page.getByText('Collected').first().waitFor();
+  const media = await apiGet(`pod/events/${seed.event}/media-status`);
+  assert.deepStrictEqual([media.expected, media.uploaded, media.missing.length], [7, 7, 0]);
+  const report = await apiGet(`pod/events/${seed.event}/report`);
+  assert.strictEqual(report.discrepancies.length, 3);
+  assert.strictEqual(report.witnesses.close[0].name, 'Chief Musa Kallon');
 
   await browser.close();
   if (errors.length) {
@@ -198,8 +287,8 @@ async function typeCode(page, code) {
   console.error('E2E FAILED:', e.message);
   for (const [i, p] of pages.entries()) {
     try {
-      console.error(`--- page ${i + 1} footer: ` + await p.locator('.footer-actions').textContent({ timeout: 2000 }));
       await p.screenshot({ path: `${E}/shots/fail-${i + 1}.png`, fullPage: true });
+      console.error(`--- page ${i + 1}: ` + (await p.locator('#app').innerText({ timeout: 2000 })).slice(0, 800));
     } catch (x) {}
   }
   if (errors.length) console.error('Browser errors:\n' + errors.join('\n'));

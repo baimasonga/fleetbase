@@ -47,7 +47,7 @@ $ent->generate($programme);
 $dist  = $app->make(DistributionService::class);
 $event = $dist->create($programme, ['kind' => 'point', 'site' => $dp->public_id, 'name' => 'Baiwalla day 1', 'scheduled_date' => '2027-03-12']);
 $dist->assign($event, ['admin_3' => 'SL010101']);
-$dist->open($event, [['sku' => 'RICE-25', 'lot' => 'R7', 'quantity' => 10], ['sku' => 'NPK-50', 'lot' => 'L1', 'quantity' => 20], ['sku' => 'HERB-1L', 'lot' => 'H3', 'quantity' => 5], ['sku' => 'NPK-50', 'lot' => 'OLD2', 'quantity' => 3]], [['name' => 'Chief Musa Kallon', 'role' => 'chief']], null);
+// The day stays planned: it is opened from the phone, offline.
 
 // A replaced card for the revoked-card check: Musa's first card.
 $old = $codes['Musa Bangura']['code'];

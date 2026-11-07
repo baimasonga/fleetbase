@@ -118,7 +118,8 @@ class FieldSyncService
     }
 
     /**
-     * @param list<array> $items each: {kind: handover|attempt, event, client_handover_id, ...the online fields}
+     * @param list<array> $items each: {kind, event, client_handover_id, captured_at, ...}
+     *                           kind: open | handover | attempt | discrepancy | close
      *
      * @return array{results: list<array>, server_time: string}
      */
@@ -128,8 +129,14 @@ class FieldSyncService
             throw new \InvalidArgumentException('Send at most ' . self::MAX_BATCH . ' records at a time.');
         }
 
-        // Process in the order things happened in the field.
-        usort($items, fn ($a, $b) => strcmp((string) ($a['captured_at'] ?? ''), (string) ($b['captured_at'] ?? '')));
+        // Process in the order things happened in the field, except that closings
+        // come last: a discrepancy recorded after a failed close must count first.
+        usort($items, function ($a, $b) {
+            $closeA = ($a['kind'] ?? null) === 'close';
+            $closeB = ($b['kind'] ?? null) === 'close';
+
+            return $closeA <=> $closeB ?: strcmp((string) ($a['captured_at'] ?? ''), (string) ($b['captured_at'] ?? ''));
+        });
 
         $results = [];
         foreach ($items as $item) {
@@ -139,18 +146,17 @@ class FieldSyncService
         return ['results' => $results, 'server_time' => now()->toIso8601String()];
     }
 
+    private const KINDS = ['open', 'handover', 'attempt', 'discrepancy', 'close'];
+
     private function syncOne(string $companyUuid, array $item, ?string $userUuid): array
     {
         $clientId = (string) ($item['client_handover_id'] ?? '');
         $kind     = $item['kind'] ?? null;
-        if ($clientId === '' || !in_array($kind, ['handover', 'attempt'], true)) {
-            return ['client_handover_id' => $clientId, 'status' => 'invalid', 'error' => 'invalid', 'message' => 'Each record needs a kind (handover or attempt) and a client_handover_id.'];
+        if ($clientId === '' || !in_array($kind, self::KINDS, true)) {
+            return ['client_handover_id' => $clientId, 'status' => 'invalid', 'error' => 'invalid', 'message' => 'Each record needs a kind (' . implode(', ', self::KINDS) . ') and a client_handover_id.'];
         }
 
-        // Already recorded or already in conflict: answer the same way again.
-        if ($handover = Handover::where('company_uuid', $companyUuid)->where('client_handover_id', $clientId)->first()) {
-            return ['client_handover_id' => $clientId, 'status' => 'replayed', 'handover' => $handover->public_id, 'outcome' => $handover->outcome];
-        }
+        // Already in conflict: answer the same way again.
         if ($conflict = SyncConflict::where('company_uuid', $companyUuid)->where('client_handover_id', $clientId)->first()) {
             return ['client_handover_id' => $clientId, 'status' => 'conflict', 'error' => $conflict->error, 'message' => $conflict->message];
         }
@@ -163,18 +169,13 @@ class FieldSyncService
             if (!$event) {
                 throw new HandoverRefused('event_not_found', 'The distribution in this record was not found.');
             }
-            $data  = Validator::make($item, $kind === 'handover' ? FieldRules::handover() : FieldRules::attempt())->validate();
-            $flags = $this->syncFlags($data['captured_at'] ?? null);
 
-            if ($kind === 'handover') {
-                $result = $this->distribution->handover($event, $data, $userUuid, $flags);
-
-                return ['client_handover_id' => $clientId, 'status' => $result['replayed'] ? 'replayed' : 'accepted', 'handover' => $result['handover']->public_id, 'outcome' => $result['handover']->outcome, 'flags' => $result['handover']->flags, 'remaining' => $result['remaining']];
-            }
-
-            $result = $this->distribution->fail($event, $data, $userUuid, $flags);
-
-            return ['client_handover_id' => $clientId, 'status' => 'accepted', 'handover' => $result['handover']->public_id, 'outcome' => 'failed', 'attempts' => $result['attempts'], 'needs_reassignment' => $result['needs_reassignment'], 'registry_review' => $result['registry_review']];
+            return match ($kind) {
+                'open'        => $this->syncOpen($event, $clientId, $item, $userUuid),
+                'close'       => $this->syncClose($event, $clientId, $item, $userUuid),
+                'discrepancy' => $this->syncDiscrepancy($event, $clientId, $item, $userUuid),
+                default       => $this->syncHandover($event, $kind, $clientId, $item, $userUuid),
+            };
         } catch (HandoverRefused $e) {
             return $this->conflict($companyUuid, $event, $clientId, $kind, $item, $e->reason, $e->getMessage(), $e->details, $userUuid);
         } catch (ValidationException $e) {
@@ -182,6 +183,103 @@ class FieldSyncService
         } catch (\InvalidArgumentException|\LogicException $e) {
             return $this->conflict($companyUuid, $event, $clientId, $kind, $item, 'refused', $e->getMessage(), [], $userUuid);
         }
+    }
+
+    /**
+     * A record for a day the server hasn't seen opened yet (the phone that opened
+     * it hasn't synced). Not a conflict: the phone keeps it and sends it again.
+     */
+    private function deferred(string $clientId): array
+    {
+        return ['client_handover_id' => $clientId, 'status' => 'deferred', 'error' => 'not_open_yet', 'message' => 'The day has not been opened on the server yet. This record will be sent again once the phone that opened it has synced.'];
+    }
+
+    private function syncHandover(DistributionEvent $event, string $kind, string $clientId, array $item, ?string $userUuid): array
+    {
+        if ($handover = Handover::where('company_uuid', $event->company_uuid)->where('client_handover_id', $clientId)->first()) {
+            return ['client_handover_id' => $clientId, 'status' => 'replayed', 'handover' => $handover->public_id, 'outcome' => $handover->outcome];
+        }
+        if ($event->status === DistributionEvent::PLANNED) {
+            return $this->deferred($clientId);
+        }
+
+        $data  = Validator::make($item, $kind === 'handover' ? FieldRules::handover() : FieldRules::attempt())->validate();
+        $flags = $this->syncFlags($data['captured_at'] ?? null);
+
+        if ($kind === 'handover') {
+            $result = $this->distribution->handover($event, $data, $userUuid, $flags);
+
+            return ['client_handover_id' => $clientId, 'status' => $result['replayed'] ? 'replayed' : 'accepted', 'handover' => $result['handover']->public_id, 'outcome' => $result['handover']->outcome, 'flags' => $result['handover']->flags, 'remaining' => $result['remaining']];
+        }
+
+        $result = $this->distribution->fail($event, $data, $userUuid, $flags);
+
+        return ['client_handover_id' => $clientId, 'status' => 'accepted', 'handover' => $result['handover']->public_id, 'outcome' => 'failed', 'attempts' => $result['attempts'], 'needs_reassignment' => $result['needs_reassignment'], 'registry_review' => $result['registry_review']];
+    }
+
+    private function syncOpen(DistributionEvent $event, string $clientId, array $item, ?string $userUuid): array
+    {
+        if ($event->open_client_id === $clientId) {
+            return ['client_handover_id' => $clientId, 'status' => 'replayed', 'event_status' => $event->status];
+        }
+        if ($event->status !== DistributionEvent::PLANNED) {
+            // Opened already, from another phone or the console: this count is kept for review.
+            throw new HandoverRefused('already_opened', 'This day was already opened (from another phone or the console). This opening count is kept for a supervisor to compare.');
+        }
+
+        $data = Validator::make($item, FieldRules::count())->validate();
+        $at   = isset($data['captured_at']) ? Carbon::parse($data['captured_at']) : null;
+        $this->distribution->open($event, array_values(array_filter($data['stock'], fn ($l) => (float) $l['quantity'] > 0)), $data['witnesses'], $userUuid, $clientId, $at);
+
+        return ['client_handover_id' => $clientId, 'status' => 'accepted', 'event_status' => DistributionEvent::OPEN];
+    }
+
+    private function syncDiscrepancy(DistributionEvent $event, string $clientId, array $item, ?string $userUuid): array
+    {
+        $existing = \Fleetbase\Pod\Models\Discrepancy::where('company_uuid', $event->company_uuid)->where('client_id', $clientId)->first();
+        if ($existing) {
+            return ['client_handover_id' => $clientId, 'status' => 'replayed', 'discrepancy' => $existing->public_id];
+        }
+        if ($event->status === DistributionEvent::PLANNED) {
+            return $this->deferred($clientId);
+        }
+
+        $data        = Validator::make($item, FieldRules::discrepancy())->validate();
+        $discrepancy = $this->distribution->discrepancy($event, $data, $userUuid, $clientId);
+
+        return ['client_handover_id' => $clientId, 'status' => 'accepted', 'discrepancy' => $discrepancy->public_id];
+    }
+
+    /**
+     * A closing count. If it doesn't balance yet, nothing is stored: the phone
+     * keeps it, shows the lines that differ, and sends it again (after its own
+     * discrepancies, or once other phones have synced).
+     */
+    private function syncClose(DistributionEvent $event, string $clientId, array $item, ?string $userUuid): array
+    {
+        if ($event->close_client_id === $clientId) {
+            return ['client_handover_id' => $clientId, 'status' => 'replayed', 'event_status' => $event->status, 'seal_hash' => $event->seal_hash];
+        }
+        if ($event->status === DistributionEvent::CLOSED) {
+            throw new HandoverRefused('already_closed', 'This day was already closed (from another phone or the console). This closing count is kept for a supervisor to compare.');
+        }
+        if ($event->status === DistributionEvent::PLANNED) {
+            return $this->deferred($clientId);
+        }
+
+        $data = Validator::make($item, FieldRules::count())->validate();
+        $at   = isset($data['captured_at']) ? Carbon::parse($data['captured_at']) : null;
+
+        try {
+            $closed = $this->distribution->close($event, $data['stock'], $data['witnesses'], $userUuid, $clientId, $at);
+        } catch (HandoverRefused $e) {
+            if ($e->reason === 'unbalanced') {
+                return ['client_handover_id' => $clientId, 'status' => 'unbalanced', 'error' => 'unbalanced', 'message' => $e->getMessage(), 'lines' => $e->details['lines'] ?? []];
+            }
+            throw $e;
+        }
+
+        return ['client_handover_id' => $clientId, 'status' => 'accepted', 'event_status' => $closed->status, 'seal_hash' => $closed->seal_hash, 'totals' => $closed->totals];
     }
 
     /**

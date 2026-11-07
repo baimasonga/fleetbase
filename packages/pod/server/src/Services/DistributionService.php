@@ -119,7 +119,7 @@ class DistributionService
      * @param list<array{sku: string, lot?: string, quantity: float}> $stock     counted at opening, taken from the site
      * @param list<array{name: string, role: string}>                $witnesses
      */
-    public function open(DistributionEvent $event, array $stock, array $witnesses, ?string $userUuid): DistributionEvent
+    public function open(DistributionEvent $event, array $stock, array $witnesses, ?string $userUuid, ?string $clientId = null, ?\DateTimeInterface $at = null): DistributionEvent
     {
         $this->expectStatus($event, [DistributionEvent::PLANNED], 'opened');
         $witnesses = $this->witnesses($witnesses);
@@ -127,7 +127,7 @@ class DistributionService
             throw new \InvalidArgumentException('Count the stock at opening.');
         }
 
-        DB::transaction(function () use ($event, $stock, $witnesses, $userUuid) {
+        DB::transaction(function () use ($event, $stock, $witnesses, $userUuid, $clientId, $at) {
             $opening = [];
             foreach ($stock as $line) {
                 $lot      = (string) ($line['lot'] ?? '');
@@ -147,8 +147,10 @@ class DistributionService
 
             $event->update([
                 'status'         => DistributionEvent::OPEN,
-                'opened_at'      => now(),
+                // An opening recorded offline is dated when it happened, not when it synced.
+                'opened_at'      => $at && $at <= now() ? $at : now(),
                 'opened_by_uuid' => $userUuid,
+                'open_client_id' => $clientId,
                 'opening_stock'  => $opening,
                 'witnesses'      => ['open' => $witnesses],
             ]);
@@ -408,7 +410,7 @@ class DistributionService
      * Stock found damaged, spoilt or missing during the day. It leaves the
      * event's stock and is counted in the reconciliation.
      */
-    public function discrepancy(DistributionEvent $event, array $data, ?string $userUuid): Discrepancy
+    public function discrepancy(DistributionEvent $event, array $data, ?string $userUuid, ?string $clientId = null): Discrepancy
     {
         $this->expectStatus($event, [DistributionEvent::OPEN], 'given a discrepancy');
         if (!in_array($data['reason'] ?? null, Discrepancy::REASONS, true)) {
@@ -421,8 +423,9 @@ class DistributionService
             throw new \InvalidArgumentException('Explain what happened.');
         }
 
-        return DB::transaction(function () use ($event, $data, $userUuid) {
+        return DB::transaction(function () use ($event, $data, $userUuid, $clientId) {
             $discrepancy = Discrepancy::create([
+                'client_id'       => $clientId,
                 'company_uuid'    => $event->company_uuid,
                 'programme_uuid'  => $event->programme_uuid,
                 'subject_type'    => 'event',
@@ -460,7 +463,7 @@ class DistributionService
      * @param list<array{sku: string, lot?: string, quantity: float}> $closing   counted at close
      * @param list<array{name: string, role: string}>                $witnesses
      */
-    public function close(DistributionEvent $event, array $closing, array $witnesses, ?string $userUuid): DistributionEvent
+    public function close(DistributionEvent $event, array $closing, array $witnesses, ?string $userUuid, ?string $clientId = null, ?\DateTimeInterface $at = null): DistributionEvent
     {
         $this->expectStatus($event, [DistributionEvent::OPEN], 'closed');
         $witnesses = $this->witnesses($witnesses);
@@ -480,7 +483,7 @@ class DistributionService
             throw new HandoverRefused('unbalanced', 'The stock does not balance. Recount, or record what happened to the missing stock as a discrepancy.', ['lines' => $result->unbalanced()]);
         }
 
-        DB::transaction(function () use ($event, $closing, $witnesses, $result, $userUuid) {
+        DB::transaction(function () use ($event, $closing, $witnesses, $result, $userUuid, $clientId, $at) {
             // What's left goes back to the site. The ledger balance equals the counted
             // closing stock here, because the reconciliation balanced.
             foreach ($this->stock->onHand('event', $event->uuid) as $line) {
@@ -498,8 +501,9 @@ class DistributionService
             $totals = $this->totals($event);
             $event->update([
                 'status'         => DistributionEvent::CLOSED,
-                'closed_at'      => now(),
+                'closed_at'      => $at && $at <= now() ? $at : now(),
                 'closed_by_uuid' => $userUuid,
+                'close_client_id' => $clientId,
                 'closing_stock'  => $closing,
                 'witnesses'      => array_merge($event->witnesses ?? [], ['close' => $witnesses]),
                 'reconciliation' => $result->toArray(),

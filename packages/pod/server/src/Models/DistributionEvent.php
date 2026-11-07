@@ -26,7 +26,7 @@ class DistributionEvent extends Model
 
     protected $fillable = [
         'company_uuid', 'programme_uuid', 'kind', 'site_uuid', 'name', 'scheduled_date', 'status',
-        'opened_at', 'opened_by_uuid', 'closed_at', 'closed_by_uuid',
+        'opened_at', 'opened_by_uuid', 'open_client_id', 'closed_at', 'closed_by_uuid', 'close_client_id',
         'opening_stock', 'closing_stock', 'witnesses', 'reconciliation', 'totals', 'seal_hash',
     ];
 

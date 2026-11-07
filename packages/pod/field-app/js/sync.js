@@ -5,7 +5,7 @@
 // is lost (signal drops mid-request), the record is simply sent again: the
 // server recognises its id and answers "replayed" without recording it twice.
 
-import { all, put, setSetting, setting } from './db.js';
+import { all, get, put, setSetting, setting } from './db.js';
 import { api, ApiError, OfflineError } from './api.js';
 
 const BATCH = 50;
@@ -73,14 +73,32 @@ async function sendRecords(summary) {
       if (!record) continue;
       record.result = result;
       record.synced_at = new Date().toISOString();
-      record.status = result.status === 'accepted' || result.status === 'replayed' ? 'synced' : 'conflict';
+      // deferred: the day isn't open on the server yet; unbalanced: a closing count that
+      // doesn't balance yet. Both stay pending and are sent again.
+      if (result.status === 'deferred' || result.status === 'unbalanced') {
+        record.status = 'pending';
+      } else {
+        record.status = result.status === 'accepted' || result.status === 'replayed' ? 'synced' : 'conflict';
+      }
+      if (record.status === 'synced' && ['open', 'close'].includes(record.payload.kind)) {
+        await markDay(record.payload.event, record.payload.kind === 'open' ? 'open' : 'closed');
+      }
       summary.sent++;
       if (result.status === 'accepted') summary.accepted++;
       if (result.status === 'replayed') summary.replayed++;
+      if (result.status === 'deferred' || result.status === 'unbalanced') summary.waiting = (summary.waiting || 0) + 1;
       if (record.status === 'conflict') summary.conflicts++;
       await put('outbox', record.payload.client_handover_id, record);
     }
     changed();
+  }
+}
+
+async function markDay(eventId, status) {
+  const bundle = await get('bundles', eventId);
+  if (bundle) {
+    bundle.event.status = status;
+    await put('bundles', eventId, bundle);
   }
 }
 
