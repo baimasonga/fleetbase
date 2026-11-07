@@ -7,7 +7,7 @@ Design documents (in this repository):
 - [`docs/proof-of-delivery/AGRI-INPUTS.md`](../../docs/proof-of-delivery/AGRI-INPUTS.md): the agricultural inputs profile
 - [`docs/proof-of-delivery/REPORTING-AUDIT.md`](../../docs/proof-of-delivery/REPORTING-AUDIT.md): reporting and audit rules
 
-## What's built (v0.6.0)
+## What's built (v0.7.0)
 
 | Area | Design ref | Status |
 |---|---|---|
@@ -30,11 +30,12 @@ Design documents (in this repository):
 | **Offline field app** at `/pod-field/`: an installable web app for Android (no app store). It downloads a distribution on depot Wi-Fi; checks cards offline (camera QR or typed code); records handovers with identity levels, quantities, lots, photos, signatures or marks, witnesses and the pesticide safety briefing; records failed door-to-door visits; and syncs by itself when there's signal. See [`field-app/README.md`](field-app/README.md). | DESIGN §6.6, AGRI §7.2, §8, §13 | Done |
 | **Opening and closing the day from the phone, offline**: a witnessed opening count (other phones join it), damaged or missing stock, and a witnessed closing count. On the server, handovers from joined phones wait for the opening, and a closing that doesn't balance yet waits for the other phones or a discrepancy, then goes through by itself. | AGRI §11 | Done |
 | **Supervisor review of sync conflicts**, in the field app (**Review conflicts**) and through the API: the record as made on the phone (lines, photos, signatures) next to what the server already holds; the supervisor records it as missing stock (only while the day is open; afterwards the loss belongs in the closing), goods taken back, or reviewed. Notes are required, and whoever made the record can't resolve it. | DESIGN §6.6.7, REPORTING §7 | Done |
+| **Roles and permissions** in Fleetbase IAM: six PoD roles (below); every API route needs a permission; transporters see only their own trips; field records an account may not send stay on the phone | REPORTING §2 | Done |
 | **Field sync API**: offline bundle, batch sync processed once each in capture order, conflicts kept for review, photo and signature uploads checked against their SHA-256, `late_sync` and `clock_ahead` flags | DESIGN §6.6 | Done |
 | **Closing and the day report**: witnessed closing count reconciled per item and lot (refused until every unit is accounted for), leftover stock returned to the site, totals by sex and age band, report as JSON or PDF in the country's local time, sealed with a hash | AGRI §11, REPORTING R-02 | Done |
 | **Stock reconciliation** per sku and lot | AGRI §11 | Done (engine) |
 
-Not built yet, in the order of the delivery plan: registration photos, cold chain readings, the audit rules engine and verification sampling, programme reports, role-based permissions, and the console screens. The console UI (Ember engine) isn't started; everything above is available through the API.
+Not built yet, in the order of the delivery plan: registration photos, cold chain readings, the audit rules engine and verification sampling, programme reports, and the console screens. The console UI (Ember engine) isn't started; everything above is available through the API.
 
 ## Install (own server)
 
@@ -65,7 +66,36 @@ The extension lives in `packages/pod` of this repository.
    php artisan pod:seed-admin-areas SL
    ```
 
-4. Watch the guard log for a while in `log` mode, then set `POD_GUARD_MODE=enforce`.
+4. Create the PoD permissions and roles, then give each person a role in the console (IAM → Users):
+
+   ```bash
+   php artisan fleetbase:create-permissions
+   ```
+
+   Run it again after each PoD update. Until someone has a role they can't use PoD, except organisation administrators, who can do everything. See [Roles](#roles).
+
+5. Watch the guard log for a while in `log` mode, then set `POD_GUARD_MODE=enforce`.
+
+## Roles
+
+Defined in [`server/src/Auth/Schemas/Pod.php`](server/src/Auth/Schemas/Pod.php). Give each person one role (or more) in IAM.
+
+| Role | For | Can | Can't |
+|---|---|---|---|
+| **PoD Programme Manager** | Programme staff at head office | Import farmer lists, verify farmers, generate entitlements, print cards, set up sites and distribution days, run stores and trips, review conflicts and discrepancies, reports | Record handovers in the field |
+| **PoD Supervisor** | Field supervisors | Work distribution days like an officer, review conflicts, resolve discrepancies, read everything | Set up programmes, import lists |
+| **PoD Field Officer** | Officers with the field app | Open and close the day, hand over, record damaged or missing stock | Review or resolve anything, set up anything |
+| **PoD Storekeeper** | Warehouse and store staff | Receive supplier deliveries, create, load, receive and close trips, record discrepancies | Resolve discrepancies (a supervisor does), hand over |
+| **PoD Transporter** | Hired truckers and staff drivers | See their own trips, mark departure and arrival | Anything else; other trips answer "not found" |
+| **PoD Monitor** | M&E officers, auditors, third-party monitors | Read everything, including photos, conflicts and reports, and export reports | Change anything |
+
+Rules that hold whatever the role:
+
+- **Separation of duties:** whoever loads a truck can't receive or close it, and whoever made a record can't resolve its conflict.
+- **A transporter's trips** are the ones created with their user id in `transporter_user_uuid`.
+- **The field app** hides what the account can't do (for example, **Review conflicts** for officers). If an officer without the role records offline, the records stay on the phone, marked as not sendable from that account, and go once the role is given. Nothing is lost.
+- **A refusal** answers 403 with the permission needed, for example `pod resolve conflict`.
+- Fleetbase's platform administrators can do everything, as elsewhere in Fleetbase.
 
 ## API (console, under `/int/v1/pod`)
 
@@ -97,7 +127,8 @@ The extension lives in `packages/pod` of this repository.
 | GET, POST | `sites` | Stores, distribution points, vehicles |
 | GET | `sites/{id}` | With stock on hand per item and lot |
 | POST | `sites/{id}/stock/receive` | Supplier delivery: `{programme, reference, lines: [{sku, lot, expiry, quantity}]}` |
-| GET, POST | `programmes/{id}/legs` | Truck trips: `{origin, destination, transporter_kind, transporter_name, vehicle_plate, waybill_no, expected_duration_min}` |
+| GET, POST | `programmes/{id}/legs` | Truck trips: `{origin, destination, transporter_kind, transporter_name, transporter_user_uuid, vehicle_plate, waybill_no, expected_duration_min}` |
+| GET | `legs` | Truck trips across programmes (a transporter's own only) |
 | GET | `legs/{id}` | With lines and discrepancies |
 | POST | `legs/{id}/load` | `{lines: [{sku, lot, quantity}], seals: [...], restricted_segregated}` |
 | POST | `legs/{id}/depart`, `legs/{id}/arrive` | |
@@ -126,7 +157,11 @@ The extension lives in `packages/pod` of this repository.
 | POST | `conflicts/{id}/resolve` | `{resolution: written_off \| recovered \| reviewed, notes}`; notes of at least a sentence. `written_off` records the lines as missing stock against the officer, only while the day is open. The person whose record it is can't resolve it |
 | GET | `media/{client_media_id}` | A photo or signature sent from a phone (the company's own only) |
 
-All requests are scoped to the signed-in user's company.
+All requests are scoped to the signed-in user's company, and each needs a PoD permission (see [Roles](#roles)); `GET me` tells the field app what the account may do.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `me` | `{user, can: {field, open_day, close_day, hand_over, record_stock, review_conflicts, resolve_conflicts}}` |
 
 ### A handover
 

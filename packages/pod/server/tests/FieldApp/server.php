@@ -4,7 +4,7 @@ require __DIR__ . '/app.php';
 
 $app = e2e_app();
 
-// Stand-in for Fleetbase's login: one field officer account.
+// Stand-in for Fleetbase's login: a field officer and a supervisor (roles in app.php).
 $app['router']->post('int/v1/auth/login', function (\Illuminate\Http\Request $request) {
     if ($request->input('identity') === 'officer@example.org' && $request->input('password') === 'field-pass') {
         return response()->json(['token' => 'e2e-11111111-1111-1111-1111-111111111111', 'type' => 'user']);

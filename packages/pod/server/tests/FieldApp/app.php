@@ -57,5 +57,12 @@ function e2e_app(): \Illuminate\Foundation\Application
     $app['router']->aliasMiddleware('fleetbase.protected', E2eAuth::class);
     $app['router']->aliasMiddleware('fleetbase.api', E2eAuth::class);
 
+    // Stand-in for Fleetbase IAM: the officer, the supervisor and an administrator (for the test's own checks).
+    $app->scoped(\Fleetbase\Pod\Auth\Gate::class, fn () => new \Fleetbase\Pod\Auth\RoleGate([
+        '33333333-3333-3333-3333-333333333333' => ['PoD Field Officer'],
+        '55555555-5555-5555-5555-555555555555' => ['PoD Supervisor'],
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' => ['Administrator'],
+    ]));
+
     return $app;
 }

@@ -2,8 +2,11 @@
 
 namespace Fleetbase\Pod\Providers;
 
+use Fleetbase\Pod\Auth\FleetbaseGate;
+use Fleetbase\Pod\Auth\Gate;
 use Fleetbase\Pod\Console\Commands\SeedAdminAreas;
 use Fleetbase\Pod\Http\Middleware\EnforceProofOfDelivery;
+use Fleetbase\Pod\Http\Middleware\RequirePermission;
 use Fleetbase\Pod\Services\AdminAreaRepository;
 use Fleetbase\Pod\Support\Countries\CountryProfiles;
 use Illuminate\Routing\Events\RouteMatched;
@@ -27,10 +30,14 @@ class PodServiceProvider extends ServiceProvider
         ));
 
         $this->app->singleton(AdminAreaRepository::class);
+
+        // Who may do what: Fleetbase IAM roles (see Auth/Schemas/Pod.php). One per request.
+        $this->app->scoped(Gate::class, FleetbaseGate::class);
     }
 
     public function boot(): void
     {
+        $this->app['router']->aliasMiddleware('pod.can', RequirePermission::class);
         $this->loadMigrationsFrom(__DIR__ . '/../../migrations');
         $this->loadRoutesFrom(__DIR__ . '/../routes.php');
 

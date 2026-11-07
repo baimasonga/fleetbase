@@ -28,7 +28,7 @@ class TransportLeg extends Model
 
     protected $fillable = [
         'company_uuid', 'programme_uuid', 'origin_site_uuid', 'destination_site_uuid', 'order_uuid', 'status',
-        'transporter_kind', 'transporter_name', 'transporter_phone', 'vendor_uuid', 'driver_uuid', 'vehicle_uuid', 'vehicle_plate', 'waybill_no',
+        'transporter_kind', 'transporter_name', 'transporter_phone', 'transporter_user_uuid', 'vendor_uuid', 'driver_uuid', 'vehicle_uuid', 'vehicle_plate', 'waybill_no',
         'seals_loaded', 'seals_received', 'seal_status', 'restricted_segregated', 'expected_duration_min',
         'loaded_at', 'loaded_by_uuid', 'departed_at', 'arrived_at', 'received_at', 'received_by_uuid', 'closed_at', 'closed_by_uuid',
         'flags', 'notes', 'seal_hash',

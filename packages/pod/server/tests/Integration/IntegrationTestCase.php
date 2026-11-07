@@ -2,6 +2,8 @@
 
 namespace Fleetbase\Pod\Tests\Integration;
 
+use Fleetbase\Pod\Auth\Gate;
+use Fleetbase\Pod\Auth\RoleGate;
 use Fleetbase\Pod\Providers\PodServiceProvider;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
@@ -21,6 +23,9 @@ abstract class IntegrationTestCase extends TestCase
         // Fail loudly when code writes a field the model doesn't allow, instead of
         // Laravel silently dropping it (this hid a bug in attempt counting).
         \Illuminate\Database\Eloquent\Model::preventSilentlyDiscardingAttributes();
+
+        // Stand-in for Fleetbase IAM: the PoD roles, given per test user.
+        $this->app->scoped(Gate::class, fn () => new RoleGate(self::ROLES));
     }
 
     protected function tearDown(): void
@@ -75,8 +80,22 @@ abstract class IntegrationTestCase extends TestCase
         $router->middleware('fleetbase.api')->match(['post', 'patch'], 'v1/orders/{id}/update-activity', 'Fleetbase\FleetOps\Http\Controllers\Api\v1\OrderController@updateActivity');
     }
 
-    public const STOREKEEPER = '33333333-3333-3333-3333-333333333333';
+    public const STOREKEEPER = '33333333-3333-3333-3333-333333333333'; // the organisation administrator in tests: may do everything
     public const RECEIVER    = '44444444-4444-4444-4444-444444444444';
+    public const SUPERVISOR_USER = '55555555-5555-5555-5555-555555555555';
+    public const OFFICER     = '66666666-6666-6666-6666-666666666666';
+    public const TRANSPORTER = '77777777-7777-7777-7777-777777777777';
+    public const MONITOR     = '88888888-8888-8888-8888-888888888888';
+    public const NO_ROLE     = '99999999-9999-9999-9999-999999999999';
+
+    public const ROLES = [
+        self::STOREKEEPER     => ['Administrator'],
+        self::RECEIVER        => ['PoD Storekeeper'],
+        self::SUPERVISOR_USER => ['PoD Supervisor'],
+        self::OFFICER         => ['PoD Field Officer'],
+        self::TRANSPORTER     => ['PoD Transporter'],
+        self::MONITOR         => ['PoD Monitor'],
+    ];
 
     protected function asCompany(string $company = self::COMPANY, string $user = self::STOREKEEPER): static
     {

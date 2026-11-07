@@ -5,7 +5,7 @@
  * when online. Data requests (/int/...) always go to the network: the app keeps
  * its own data in IndexedDB.
  */
-const VERSION = 'pod-field-v3';
+const VERSION = 'pod-field-v4';
 const SHELL = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/main.js', 'js/db.js', 'js/api.js', 'js/card.js', 'js/policy.js', 'js/media.js', 'js/scanner.js', 'js/sync.js', 'js/ui.js',

@@ -2,6 +2,7 @@
 
 namespace Fleetbase\Pod\Http\Controllers\Internal\v1;
 
+use Fleetbase\Pod\Auth\Gate;
 use Fleetbase\Pod\Models\DistributionEvent;
 use Fleetbase\Pod\Models\SyncConflict;
 use Fleetbase\Pod\Services\FieldSyncService;
@@ -11,17 +12,49 @@ use Illuminate\Http\Request;
 /**
  * For the offline field app:
  *
+ *   GET  me                         what the signed-in person may do in the app
  *   GET  field/events               open and planned distributions the phone can download
  *   GET  events/{id}/bundle         the offline bundle
- *   POST field/sync                 {items: [...]} records made offline
+ *   POST field/sync                 {items: [...]} records made offline; each kind needs its own
+ *                                   permission too (opening, closing, handover, discrepancy), and a
+ *                                   record the person may not send answers `forbidden` and is not
+ *                                   stored: the phone keeps it until an administrator gives the role
  *   POST field/media                multipart: file, client_media_id, sha256, kind
  *   GET  events/{id}/media-status   which photos and signatures have arrived
  *   GET  events/{id}/conflicts      records the server could not accept
  */
 class FieldController extends PodController
 {
-    public function __construct(private FieldSyncService $field)
+    /** The permission each kind of field record needs, besides `pod sync field`. */
+    public const KIND_PERMISSIONS = [
+        'open'        => 'pod open distribution',
+        'close'       => 'pod close distribution',
+        'handover'    => 'pod create handover',
+        'attempt'     => 'pod create handover',
+        'discrepancy' => 'pod create discrepancy',
+    ];
+
+    /** What the field app asks about, to show or hide its screens. */
+    public const CAPABILITIES = [
+        'field'            => 'pod sync field',
+        'open_day'         => 'pod open distribution',
+        'close_day'        => 'pod close distribution',
+        'hand_over'        => 'pod create handover',
+        'record_stock'     => 'pod create discrepancy',
+        'review_conflicts' => 'pod list conflict',
+        'resolve_conflicts' => 'pod resolve conflict',
+    ];
+
+    public function __construct(private FieldSyncService $field, private Gate $gate)
     {
+    }
+
+    public function me()
+    {
+        return response()->json([
+            'user' => $this->userUuid(),
+            'can'  => array_map(fn ($permission) => $this->gate->allows($permission), self::CAPABILITIES),
+        ]);
     }
 
     public function events()
@@ -55,7 +88,28 @@ class FieldController extends PodController
     {
         $items = $request->validate(['items' => ['required', 'array', 'min:1', 'max:' . FieldSyncService::MAX_BATCH], 'items.*' => ['array']])['items'];
 
-        return $this->guarded(fn () => response()->json($this->field->sync($this->companyUuid(), $items, $this->userUuid())));
+        $allowed   = [];
+        $forbidden = [];
+        foreach ($items as $item) {
+            $permission = self::KIND_PERMISSIONS[$item['kind'] ?? ''] ?? null;
+            if ($permission && !$this->gate->allows($permission)) {
+                $forbidden[] = [
+                    'client_handover_id' => (string) ($item['client_handover_id'] ?? ''),
+                    'status'             => 'forbidden',
+                    'error'              => 'forbidden',
+                    'message'            => 'Your account is not allowed to send this record (' . $permission . '). It stays on the phone: ask an administrator to give you the PoD Field Officer role.',
+                ];
+                continue;
+            }
+            $allowed[] = $item;
+        }
+
+        return $this->guarded(function () use ($allowed, $forbidden) {
+            $out = $allowed ? $this->field->sync($this->companyUuid(), $allowed, $this->userUuid()) : ['results' => [], 'server_time' => now()->toIso8601String()];
+            $out['results'] = array_merge($out['results'], $forbidden);
+
+            return response()->json($out);
+        });
     }
 
     public function media(Request $request)

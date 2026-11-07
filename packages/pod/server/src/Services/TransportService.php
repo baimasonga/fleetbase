@@ -59,6 +59,7 @@ class TransportService
             'transporter_kind'      => $kind,
             'transporter_name'      => $data['transporter_name'] ?? null,
             'transporter_phone'     => $data['transporter_phone'] ?? null,
+            'transporter_user_uuid' => $data['transporter_user_uuid'] ?? null,
             'vehicle_plate'         => isset($data['vehicle_plate']) ? strtoupper(trim($data['vehicle_plate'])) : null,
             'waybill_no'            => $data['waybill_no'] ?? null,
             'expected_duration_min' => $data['expected_duration_min'] ?? null,

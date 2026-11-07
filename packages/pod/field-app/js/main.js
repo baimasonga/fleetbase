@@ -138,6 +138,7 @@ function renderLogin() {
         await db.setSetting('token', data.token);
         await db.setSetting('identity', identity.value.trim());
         await db.setSetting('auth_expired', false);
+        await db.setSetting('can', null); // a different person may have signed in
         go('#/');
       } catch (err) {
         error.replaceChildren(notice('bad', err instanceof OfflineError ? 'No connection. Sign in once with signal, for example on the depot Wi-Fi.' : err.message));
@@ -165,6 +166,8 @@ function renderLogin() {
 // Home: sync status, your distributions, downloads
 
 async function renderHome() {
+  refreshPermissions();
+  const can = await permissions();
   const s = await syncStatus();
   const bundles = await db.all('bundles');
   const outbox = await db.all('outbox');
@@ -237,6 +240,7 @@ async function renderHome() {
   }
 
   screen({ title: 'Field Distribution' },
+    can && !can.field ? notice('warn', h('strong', {}, 'This account has no field role yet'), h('p', {}, 'Ask an administrator to give you the PoD Field Officer role before you download a distribution.')) : null,
     syncCard,
     h('h2', { class: 'section-title' }, 'Your distributions'), yours,
     h('h2', { class: 'section-title' }, 'Download for the field'), available,
@@ -244,7 +248,7 @@ async function renderHome() {
     h('div', { class: 'card row between wrap' },
       h('div', { class: 'row' }, h('span', { class: 'avatar' }, icon('user', 20)), h('span', { class: 'small' }, user || '')),
       h('div', { class: 'row' },
-        button('Review conflicts', { variant: 'ghost', iconName: 'shield', onClick: () => go('#/review') }),
+        !can || can.review_conflicts ? button('Review conflicts', { variant: 'ghost', iconName: 'shield', onClick: () => go('#/review') }) : null,
         button('Sign out', { variant: 'ghost', iconName: 'logout', onClick: signOut }))));
   paintProgress();
 }
@@ -297,7 +301,12 @@ function dayPill(bundle) {
 
 /** Pending records the server answered "not yet" for. */
 function waitingNotices(outbox) {
-  return outbox.filter((r) => r.status === 'pending' && r.result && ['deferred', 'unbalanced'].includes(r.result.status)).map((r) => {
+  const forbidden = outbox.filter((r) => r.status === 'pending' && r.result?.status === 'forbidden');
+  const roleNotice = forbidden.length
+    ? notice('bad', h('strong', {}, `${plural(forbidden.length, 'record')} can't be sent from this account`),
+      h('p', {}, 'Your account doesn\'t have the role for them yet (PoD Field Officer). They stay safe on this phone. Ask an administrator to give you the role, then press Sync now.'))
+    : null;
+  return [roleNotice, ...outbox.filter((r) => r.status === 'pending' && r.result && ['deferred', 'unbalanced'].includes(r.result.status)).map((r) => {
     if (r.result.status === 'deferred') {
       return notice('info', `${r.label}: waiting for the day to be opened on the server (the opening phone has not synced yet). It will be sent again.`);
     }
@@ -309,7 +318,27 @@ function waitingNotices(outbox) {
       })),
       h('p', { class: 'small' }, 'If other phones handed out from this stock, it will balance once they sync. Otherwise record what happened as damaged or missing stock; the closing is sent again by itself.'),
       button('Damaged or missing stock', { variant: 'secondary', onClick: () => go(`#/discrepancy/${r.event}`) }));
-  });
+  })];
+}
+
+/**
+ * What this account may do (from the server, kept for offline use). Unknown
+ * until first fetched: then everything is shown and the server decides.
+ */
+async function permissions() {
+  return (await db.setting('can')) || null;
+}
+
+async function refreshPermissions() {
+  if (!navigator.onLine) return;
+  try {
+    const me = await api('pod/me');
+    const before = JSON.stringify(await permissions());
+    await db.setSetting('can', me.can || {});
+    if (before !== JSON.stringify(me.can || {}) && (location.hash === '' || location.hash === '#/')) render();
+  } catch (err) {
+    // Offline or signed out: keep what we had.
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1051,6 +1080,14 @@ async function renderConflict(id) {
     screen({ title: 'Conflict', back: '#/review', wide: true }, top,
       h('section', { class: 'card' }, h('h3', {}, RESOLUTIONS[c.resolution]?.[0] || c.resolution), h('p', {}, c.resolution_notes), h('p', { class: 'small muted' }, `Resolved ${time(c.resolved_at)}`)),
       h('div', { class: 'compare' }, phoneRecord, serverRecord));
+    return;
+  }
+
+  const can = await permissions();
+  if (can && !can.resolve_conflicts) {
+    screen({ title: 'Conflict', subtitle: c.event?.name, back: '#/review', wide: true }, top,
+      h('div', { class: 'compare' }, phoneRecord, serverRecord),
+      notice('info', 'Your role can look at conflicts but not resolve them. A supervisor or programme manager decides.'));
     return;
   }
 

@@ -187,7 +187,7 @@ final class TransportAndDistributionFlowTest extends IntegrationTestCase
         $close()->assertStatus(422)->assertJsonFragment(['errors' => ['2 discrepancies on this trip still need an explanation and a resolution.']]);
 
         foreach ($discrepancies as $d) {
-            $this->asCompany(self::COMPANY, self::RECEIVER)->postJson("int/v1/pod/discrepancies/{$d['public_id']}/resolve", ['notes' => 'Driver statement taken; amount deducted from transport invoice.', 'resolution' => 'recovered'])->assertOk();
+            $this->asCompany(self::COMPANY, self::SUPERVISOR_USER)->postJson("int/v1/pod/discrepancies/{$d['public_id']}/resolve", ['notes' => 'Driver statement taken; amount deducted from transport invoice.', 'resolution' => 'recovered'])->assertOk();
         }
         $close()->assertStatus(422)->assertJsonFragment(['errors' => ['The seals were broken on arrival. Explain what happened before closing the trip.']]);
 

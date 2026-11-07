@@ -58,6 +58,8 @@ async function run() {
   return summary;
 }
 
+const WAITING = ['deferred', 'unbalanced', 'forbidden'];
+
 async function sendRecords(summary) {
   const pending = (await all('outbox'))
     .filter((record) => record.status === 'pending')
@@ -74,8 +76,9 @@ async function sendRecords(summary) {
       record.result = result;
       record.synced_at = new Date().toISOString();
       // deferred: the day isn't open on the server yet; unbalanced: a closing count that
-      // doesn't balance yet. Both stay pending and are sent again.
-      if (result.status === 'deferred' || result.status === 'unbalanced') {
+      // doesn't balance yet; forbidden: this account doesn't have the role for it yet.
+      // All stay pending and are sent again.
+      if (WAITING.includes(result.status)) {
         record.status = 'pending';
       } else {
         record.status = result.status === 'accepted' || result.status === 'replayed' ? 'synced' : 'conflict';
@@ -86,7 +89,7 @@ async function sendRecords(summary) {
       summary.sent++;
       if (result.status === 'accepted') summary.accepted++;
       if (result.status === 'replayed') summary.replayed++;
-      if (result.status === 'deferred' || result.status === 'unbalanced') summary.waiting = (summary.waiting || 0) + 1;
+      if (WAITING.includes(result.status)) summary.waiting = (summary.waiting || 0) + 1;
       if (record.status === 'conflict') summary.conflicts++;
       await put('outbox', record.payload.client_handover_id, record);
     }

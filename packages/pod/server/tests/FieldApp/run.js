@@ -15,10 +15,9 @@ const E = process.env.POD_E2E_DIR || require('os').tmpdir() + '/pod-e2e';
 const base = process.env.POD_E2E_URL || 'http://127.0.0.1:8099';
 fs.mkdirSync(`${E}/shots`, { recursive: true });
 const seed = JSON.parse(fs.readFileSync(`${E}/seed.json`, 'utf8'));
-const TOKEN = 'e2e-11111111-1111-1111-1111-111111111111';
+const TOKEN = 'e2e-11111111-1111-1111-1111-111111111111~aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; // an administrator, for checking the server
 const errors = [];
 const pages = [];
-let allow422 = false; // while the test expects the server to refuse
 
 async function apiGet(path) {
   const r = await fetch(`${base}/int/v1/${path}`, { headers: { Authorization: `Bearer ${TOKEN}`, Accept: 'application/json' } });
@@ -31,7 +30,7 @@ async function phone(browser, name, scale) {
     geolocation: { latitude: 7.9805, longitude: -10.6361 }, permissions: ['geolocation', 'camera'],
   });
   const page = await ctx.newPage();
-  page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('401') && !(allow422 && m.text().includes('422'))) errors.push(`${name} console: ${m.text()}`); });
+  page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('401')) errors.push(`${name} console: ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`${name} page: ${e.message}`));
   pages.push(page);
   return { ctx, page };
@@ -274,23 +273,20 @@ const waitIdle = (page) => page.waitForFunction(() => document.getElementById('n
   await page.screenshot({ animations: 'disabled', path: `${E}/shots/10-closed.png` });
 
   // ---- A supervisor reviews the conflict --------------------------------------------------
-  // The officer can't resolve a conflict on their own record.
-  await page.getByRole('button', { name: 'Review conflicts' }).click();
-  await page.getByRole('button', { name: /Farmer served twice/ }).click();
-  await page.getByText('Already on the server').waitFor();
-  // The day is closed, so the loss is already in the closing: no write-off offered.
-  assert.strictEqual(await page.getByText('Record as missing stock').count(), 0);
-  await page.getByText('Reviewed, nothing to record').click();
-  await page.getByLabel('Notes').fill('Duplicate at Baiwalla, loss recorded by the officer before closing.');
-  allow422 = true;
-  await page.getByRole('button', { name: 'Resolve' }).click();
-  await page.getByText('The person whose record this is can\'t resolve it.').waitFor();
-  allow422 = false;
+  // (Separation of duties, a supervisor refused on their own record, is in ConflictReviewTest.)
+  // A field officer has no review role: the app doesn't offer it, and the server refuses it.
+  await page.getByRole('button', { name: 'Sign out' }).waitFor();
+  assert.strictEqual(await page.getByRole('button', { name: 'Review conflicts' }).count(), 0, 'officers do not review');
+  const refused = (await fetch(`${base}/int/v1/pod/conflicts`, { headers: { Authorization: 'Bearer e2e-11111111-1111-1111-1111-111111111111', Accept: 'application/json' } })).status;
+  assert.strictEqual(refused, 403);
 
   const sv = await phone(browser, 'supervisor', 2);
   await signIn(sv.page, 'supervisor@example.org');
   await sv.page.getByRole('button', { name: 'Review conflicts' }).click();
   await sv.page.getByRole('button', { name: /Farmer served twice/ }).click();
+  // The day is closed, so the loss is already in the closing: no write-off offered.
+  await sv.page.getByText('Already on the server').waitFor();
+  assert.strictEqual(await sv.page.getByText('Record as missing stock').count(), 0);
   await sv.page.getByRole('img', { name: /photo/ }).first().waitFor();
   await sv.page.waitForFunction(() => [...document.querySelectorAll('.photo-grid img')].some((i) => i.complete && i.naturalWidth > 0), null, { timeout: 15000 });
   await sv.page.getByText('Reviewed, nothing to record').click();

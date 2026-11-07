@@ -10,7 +10,7 @@ The app is served by your Fleetbase server at **`https://<your-server>/pod-field
 
 1. On the phone, open that address in **Chrome**, while on the depot Wi-Fi.
 2. Chrome menu (⋮) → **Add to Home screen**. The app then opens like any other app, including with no signal.
-3. Sign in with the officer's Fleetbase account.
+3. Sign in with the officer's Fleetbase account. It needs the **PoD Field Officer** role (supervisors: **PoD Supervisor**); an administrator gives it in the console, under IAM → Users. Without it the home screen says so.
 
 The server must use **HTTPS**. Phones only allow the camera, and the app's offline storage and checks, on secure addresses. Your Caddy set-up already does this.
 
@@ -69,7 +69,7 @@ The server must use **HTTPS**. Phones only allow the camera, and the app's offli
 
 ## Reviewing conflicts (supervisors)
 
-**Review conflicts** on the home screen lists the records the server couldn't accept, with signal (they are on the server). Each one shows, side by side, the record as made on the phone (items, lots, who collected, photos and signatures) and what the server already holds for that farmer on that day. The supervisor chooses one:
+**Review conflicts** on the home screen (shown to supervisors, managers and monitors; monitors can look but not resolve) lists the records the server couldn't accept, with signal (they are on the server). Each one shows, side by side, the record as made on the phone (items, lots, who collected, photos and signatures) and what the server already holds for that farmer on that day. The supervisor chooses one:
 
 - **Record as missing stock:** the goods are lost to the programme. They are recorded as missing stock on that day, against the officer. Only while the day is open; once it is closed, the loss belongs in the closing count.
 - **Goods taken back:** the extra goods were returned.
