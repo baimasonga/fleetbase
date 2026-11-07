@@ -188,7 +188,11 @@ const waitIdle = (page) => page.waitForFunction(() => document.getElementById('n
   // 3) Replaced and forged cards are refused offline.
   await typeCode(page, seed.farmers['Musa Bangura'].old_code);
   await page.getByText('This card has been replaced').waitFor();
-  await page.getByLabel('Code printed under the QR').fill(seed.farmers['Musa Bangura'].code.slice(0, -2) + 'AA');
+  // Change the signature's last two characters, to something other than what they are.
+  const real = seed.farmers['Musa Bangura'].code;
+  const forged = real.slice(0, -2) + (real.slice(-2) === 'AA' ? 'BA' : 'AA');
+  assert.notStrictEqual(forged, real);
+  await page.getByLabel('Code printed under the QR').fill(forged);
   await page.getByRole('button', { name: 'Check card' }).click();
   await page.getByText('This card is not genuine').waitFor();
 

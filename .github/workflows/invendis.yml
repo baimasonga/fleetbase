@@ -194,7 +194,7 @@ jobs:
             echo "APP_ENV=production"
             echo "APP_DEBUG=false"
             echo "APP_KEY=base64:$(openssl rand -base64 32)"
-            echo "LOG_CHANNEL=stderr"
+            echo "LOG_CHANNEL=stdout"
             echo "TRUSTED_PROXIES=*"
             echo "PORT=8000"
             echo "DATABASE_URL=mysql://root:ci-root@127.0.0.1:3306/railway"
