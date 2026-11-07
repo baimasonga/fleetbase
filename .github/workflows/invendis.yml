@@ -1,0 +1,144 @@
+name: Invendis
+
+# Checks for the Invendis extension (packages/pod) and the image Railway builds
+# from this repository. With Railway's "Wait for CI" setting on, a push is only
+# deployed once these pass.
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths:
+      - 'packages/pod/**'
+      - 'api/composer.json'
+      - 'api/composer.lock'
+      - 'docker/**'
+      - 'railway/**'
+      - '.github/workflows/invendis.yml'
+  pull_request:
+    paths:
+      - 'packages/pod/**'
+      - 'api/composer.json'
+      - 'api/composer.lock'
+      - 'docker/**'
+      - 'railway/**'
+      - '.github/workflows/invendis.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: invendis-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Unit, integration and field app tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      POD_TEST_VENDOR: ${{ github.workspace }}/.pod-test/vendor
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, xml, gd, zip, intl, bcmath, sqlite3, pdo_sqlite, fileinfo
+          coverage: none
+
+      - name: Install the test dependencies (no Fleetbase install needed)
+        # A throwaway vendor folder for the tests, never deployed. Fleetbase is on
+        # Laravel 10, which is out of support: every 10.x release has open advisories,
+        # and Composer refuses them by default, so they are allowed here only.
+        env:
+          COMPOSER_NO_SECURITY_BLOCKING: '1'
+        run: |
+          mkdir -p .pod-test && cd .pod-test
+          echo '{"minimum-stability":"stable","config":{"audit":{"block-insecure":false},"policy":{"advisories":{"block":false}}}}' > composer.json
+          composer require --no-interaction --no-progress \
+            giggsey/libphonenumber-for-php:^8.13 phpoffice/phpspreadsheet:^1.28 milon/barcode:^10.0 \
+            dompdf/dompdf:^3.1 vlucas/phpdotenv:^5.6 orchestra/testbench:^8.0 phpunit/phpunit:^10.5
+
+      - name: Unit tests
+        working-directory: packages/pod
+        run: php "$POD_TEST_VENDOR/bin/phpunit"
+
+      - name: Integration tests
+        working-directory: packages/pod
+        run: php "$POD_TEST_VENDOR/bin/phpunit" -c phpunit.integration.xml.dist
+
+      - name: Field app syntax
+        run: for f in packages/pod/field-app/js/*.js packages/pod/field-app/sw.js; do node --check "$f"; done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Playwright and Chromium
+        working-directory: packages/pod/server/tests/FieldApp
+        run: |
+          npm install --no-save --no-package-lock playwright@1.63.0
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends python3-pil
+
+      - name: Field app end to end (offline day, two phones, supervisor review)
+        working-directory: packages/pod/server/tests/FieldApp
+        env:
+          POD_E2E_DIR: ${{ runner.temp }}/pod-e2e
+        run: ./run.sh
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: field-app-screenshots
+          path: ${{ runner.temp }}/pod-e2e/shots
+          if-no-files-found: ignore
+
+  railway-config:
+    name: Railway config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Config files parse, scripts are valid
+        run: |
+          for f in railway.toml railway/*.toml; do python3 -c "import tomllib,sys; tomllib.load(open(sys.argv[1],'rb'))" "$f" && echo "ok $f"; done
+          sh -n railway/console-config.sh
+          sh -n railway/generate-secrets.sh
+      - name: Console config script writes valid JSON
+        run: |
+          dir=$(mktemp -d)
+          sed "s#/usr/share/nginx/html#$dir#" railway/console-config.sh > "$dir/run.sh"
+          API_HOST=https://api.example.org SOCKETCLUSTER_HOST=socket.example.org sh "$dir/run.sh"
+          python3 -m json.tool "$dir/fleetbase.config.json"
+
+  api-image:
+    name: API image builds (what Railway deploys)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build docker/Dockerfile
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          load: true
+          tags: invendis-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Invendis is installed in the image
+        run: |
+          docker run --rm --entrypoint sh invendis-api:ci -c 'set -e
+            test -f vendor/fleetbase/pod-api/server/src/Auth/Schemas/Pod.php
+            test -f vendor/fleetbase/pod-api/field-app/index.html
+            test -f vendor/fleetbase/pod-api/server/data/seed/sierra-leone/admin-areas.csv
+            test ! -L vendor/fleetbase/pod-api
+            echo "Invendis files are in the image (copied, not linked)"'
+          docker run --rm --entrypoint php invendis-api:ci -r 'require "vendor/autoload.php"; exit(class_exists("Fleetbase\\Pod\\Providers\\PodServiceProvider") && class_exists("Fleetbase\\Pod\\Auth\\Schemas\\Pod") ? 0 : 1);'

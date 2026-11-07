@@ -1,0 +1,11 @@
+# Railway service: queue (background jobs). Same image as api.
+# Config-as-code file: /railway/queue.toml. Root directory: empty.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/Dockerfile"
+watchPatterns = ["api/**", "packages/pod/**", "docker/**", "railway/queue.toml"]
+
+[deploy]
+startCommand = "php artisan queue:work --tries=3 --timeout=300"
+restartPolicyType = "ALWAYS"

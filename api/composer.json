@@ -43,7 +43,8 @@
         "s-ichikawa/laravel-sendgrid-driver": "^4.0",
         "stripe/stripe-php": "^17.0",
         "symfony/mailgun-mailer": "^7.1",
-        "symfony/postmark-mailer": "^7.1"
+        "symfony/postmark-mailer": "^7.1",
+        "fleetbase/pod-api": "^0.8"
     },
     "require-dev": {
         "spatie/laravel-ignition": "^2.0",
@@ -54,6 +55,13 @@
         "phpunit/phpunit": "^10.0"
     },
     "repositories": [
+        {
+            "type": "path",
+            "url": "../packages/pod",
+            "options": {
+                "symlink": false
+            }
+        },
         {
             "type": "composer",
             "url": "https://registry.fleetbase.io",

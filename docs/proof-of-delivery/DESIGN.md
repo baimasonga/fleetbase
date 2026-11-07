@@ -1,0 +1,462 @@
+# Proof of Delivery (PoD) Module — Design
+
+Status: **Draft for review**
+Profiles: [Agricultural inputs](AGRI-INPUTS.md), which adapts the module for farmer input distribution programmes, with [reporting and audit](REPORTING-AUDIT.md).
+Target: Fleetbase v0.7.75, Fleet-Ops `0.6.75` (submodule commit `811aa71`)
+
+## 1. Summary
+
+Fleet-Ops already captures basic proof of delivery: a signature, a photo or a QR scan, stored as `Proof` rows against an order or a stop. This design adds a **PoD module** on top of it. The module turns those loose captures into a **verifiable delivery record**. That record:
+
+- says exactly what proof each stop needs (a policy), and enforces it on the server for every client;
+- captures richer evidence: recipient name, OTP, ID check, parcel barcodes, several photos, and GPS/time/device metadata;
+- records failed and partial attempts, with reasons, not just successes;
+- is tamper-evident (hashed, locked once submitted) and works offline in the driver app;
+- produces a shareable **ePOD document** (PDF plus link) for customers, billing and disputes.
+
+The module ships as a Fleetbase **extension** (`pod`), with an API package and a console engine. It needs one small upstream change to Fleet-Ops (§4.3), so we don't fork Fleet-Ops.
+
+## 2. What exists today
+
+| Capability | Where | Notes |
+|---|---|---|
+| `pod_required`, `pod_method` (`scan` / `signature` / `photo`) on orders and waypoints | `fleetops/server/src/Models/Order.php`, `Waypoint.php`; methods from `config('fleetops.pod_methods')` | One method per order or stop. |
+| `require_pod` / `pod_method` on Order Config activities | `Support/FleetOps.php`, `Http/Resources/v1/OrderConfig.php` | Hints for the UI. |
+| `proofs` table | `server/migrations/2023_04_27_053456_create_proofs_table.php` | `order_uuid`, polymorphic `subject_*`, `file_uuid`, `remarks`, `raw_data`, `data` (JSON). |
+| Capture endpoints | `POST /v1/orders/{id}/capture-signature|capture-qr|capture-photo/{subjectId?}`, `GET /v1/orders/{id}/proofs/{subjectId?}` | Used by the Navigator app. The QR scan is checked with `TrackingCode::matches`. |
+| Enforcement | `Http/Controllers/Internal/v1/OrderController.php` (console) | Returns 422 when proof is missing, unless `bypass_proof`. |
+| Public tracking proof view | `Http/Controllers/Public/TrackingController.php@proof` | The customer sees the signature or photo. |
+| Dashboard tile | `Internal/v1/ProofController@recent` | Latest photo proofs. |
+
+### Gaps this module closes
+
+1. **No server-side enforcement on the public API.** `Api/v1/OrderController@updateActivity` (used by Navigator and integrations) accepts a completing activity without proof, even when `pod_required` is set. Only the console path checks.
+2. **One method only.** You can't require "signature **and** photo", or "OTP **or** signature".
+3. **No structured metadata.** Capture location, time, accuracy, device, recipient name and relationship either aren't stored or end up in untyped `data` JSON.
+4. **No location or time checks.** A proof can be captured anywhere, at any time.
+5. **No failed-attempt record.** "Recipient not home" or "refused" is just an activity, with no evidence or reason code.
+6. **No tamper evidence.** Proof rows and files can be changed or deleted (soft delete only) after delivery.
+7. **No ePOD document.** Nothing gives the customer or billing a single signed artefact per delivery.
+8. **No per-item proof.** You can't confirm that each parcel or entity on a multi-item stop was scanned.
+
+## 3. Goals and non-goals
+
+**Goals**
+- A configurable PoD policy per order type, customer, service area or stop.
+- The server enforces the policy for every client (console, Navigator, API, Customer Portal).
+- Evidence types: signature, photo (one or more), barcode or QR scan per item, OTP or PIN, recipient name, ID check, "leave at safe place" with a photo, and contactless delivery.
+- Every attempt is recorded, successful or not, with a geo/time/device context.
+- Records are immutable once submitted, and integrity can be verified.
+- Offline capture with later sync.
+- An ePOD PDF and a public verification link, plus webhooks and events.
+- Privacy controls: retention, redaction and access by permission.
+
+**Non-goals (v1)**
+- Biometric checks, or ID document OCR (left as a hook for later).
+- Legally qualified e-signatures (eIDAS QES). We produce *advanced evidence*, not a qualified signature.
+- Replacing Fleet-Ops' order lifecycle. The module listens to it and guards it.
+
+## 4. Architecture
+
+```
+┌──────────────── Clients ─────────────────┐
+│ Navigator app │ Console │ API │ Portal   │
+└──────┬────────────┬─────────┬────────────┘
+       │ capture    │ review  │ query/webhooks
+┌──────▼────────────▼─────────▼────────────────────────────┐
+│ PoD extension (fleetbase/pod-api + @fleetbase/pod-engine)│
+│  PolicyResolver → AttemptService → EvidenceService       │
+│  Validator (geo/time/OTP/scan) → Sealer (hash, lock)     │
+│  EpodRenderer (dompdf) → Notifier (OTP SMS/email, hooks) │
+└──────┬───────────────────────────────────────────────────┘
+       │ guard hook + events          │ storage (S3/GCS/local)
+┌──────▼──────────────┐       ┌───────▼────────┐
+│ Fleet-Ops           │       │ files / proofs │
+│ updateActivity()    │       │ (existing)     │
+│ Order/Waypoint      │       └────────────────┘
+└─────────────────────┘
+```
+
+### 4.1 Packaging
+
+Follow the standard extension layout (see `packages/fleetops`, `packages/ledger`):
+
+```
+packages/pod/
+  extension.json            # name "Proof of Delivery", engine: package.json, api: composer.json
+  composer.json             # fleetbase/pod-api, requires fleetbase/core-api, fleetbase/fleetops-api
+  package.json              # @fleetbase/pod-engine, keyword "fleetbase-extension", route "pod"
+  server/
+    config/pod.php
+    migrations/
+    src/
+      Providers/PodServiceProvider.php
+      Models/{PodPolicy,DeliveryAttempt,PodEvidence,PodOtp}.php
+      Services/{PolicyResolver,AttemptService,EvidenceValidator,Sealer,EpodRenderer}.php
+      Guards/RequiresProofOfDelivery.php
+      Http/Controllers/{Api,Internal}/v1/...
+      Listeners/...
+      routes.php
+  addon/  app/              # Ember engine: settings, review queue, attempt viewer
+```
+
+Link it locally with `node scripts/package-linker.mjs` (see `scripts/README.md`).
+
+### 4.2 Reusing `proofs`
+
+We **don't replace** the `proofs` table. Every piece of evidence still writes a `Proof` row, so existing screens, the tracking page and the dashboard keep working. The module adds typed tables that point at proofs (§5).
+
+### 4.3 Upstream hook in Fleet-Ops (the only core change)
+
+Add a pluggable guard that both `Api\v1\OrderController@updateActivity` and `Internal\v1\OrderController@updateActivity` call before applying an activity:
+
+```php
+// fleetops: new contract
+interface ActivityProofGuard {
+    /** @throws ProofRequiredException (→ HTTP 422 with machine-readable missing requirements) */
+    public function check(Order $order, Activity $activity, Waypoint|Order|null $subject, ?Proof $proof, Request $request): void;
+}
+```
+
+- Fleet-Ops binds a default implementation that reproduces today's internal rule (`require_pod`, or completing with `pod_required`). This also closes gap 1 for the public API.
+- The PoD extension rebinds it to `RequiresProofOfDelivery`, which evaluates the full policy.
+- `bypass_proof` stays, but needs the `pod bypass` permission and a reason, and is written to the audit log.
+
+Raise this as a pull request to `fleetbase/fleetops`, so the fork stays mergeable with upstream.
+
+## 5. Data model
+
+All tables use the core conventions: `uuid`, `public_id`, `company_uuid`, timestamps, soft deletes where noted.
+
+### `pod_policies`
+| column | type | notes |
+|---|---|---|
+| name | string | e.g. "High-value parcels" |
+| scope_type / scope_uuid | morph, nullable | `order_config`, `customer` (contact/vendor), `service_area`, `zone`, or null for the company default |
+| priority | int | the highest matching policy wins |
+| requirements | json | the rule tree below |
+| geofence_radius_m | int, default 150 | the capture must be within this distance of the stop |
+| time_window_grace_min | int, nullable | the capture must fall in the stop window ± grace |
+| offline_mode | enum | `allowed` (default), `allowed_with_fallback`, `online_only` (§6.6.8) |
+| offline_fallback | json, nullable | requirement tree used when key checks ran offline |
+| max_offline_hours / max_media_delay_hours | int | default 12 / 24 |
+| allow_safe_place | bool | |
+| max_attempts | int, default 3 | |
+| retention_days | int, nullable | overrides the company default |
+| active | bool | |
+
+`requirements` is a small AND/OR tree of evidence types with options:
+
+```json
+{ "all": [
+    { "any": [ {"type": "otp"}, {"type": "signature", "require_name": true} ] },
+    { "type": "photo", "min": 1 },
+    { "type": "item_scan", "coverage": "all_entities" }
+]}
+```
+
+The evidence types are `signature`, `photo`, `otp`, `item_scan`, `qr_scan` (the stop or order code, as today), `recipient_name`, `id_check` (type plus last 4 characters, never the full number), `safe_place` (photo plus a location note), and `custom_field`.
+
+### `delivery_attempts`
+One row each time a driver tries to complete a stop.
+
+| column | type | notes |
+|---|---|---|
+| order_uuid, subject_type/subject_uuid | | the order or waypoint (stop) |
+| driver_uuid, vehicle_uuid | | |
+| policy_uuid, policy_snapshot | uuid, json | the policy is frozen at attempt time |
+| attempt_no | int | |
+| outcome | enum | `delivered`, `partially_delivered`, `failed`, `refused`, `safe_place`, `returned` |
+| failure_reason_code | string, nullable | `not_home`, `wrong_address`, `refused`, `damaged`, `access_denied`, `unsafe`, `other` |
+| recipient_name, recipient_relation | string, nullable | `self`, `family`, `neighbour`, `reception`, `other` |
+| captured_at (device), received_at (server) | timestamp | |
+| location | point | GPS at submission |
+| location_accuracy_m | float | |
+| distance_from_stop_m | float | computed |
+| device_id, app_version, offline | | |
+| trusted_captured_at, clock_skew_s | timestamp, int | from the phone's last-sync time plus uptime (§6.6.6) |
+| sync_state | enum | `meta_synced`, `meta_synced_sms`, `media_synced` |
+| expected_media | json | photo hashes committed in the metadata phase (§6.6.3) |
+| device_signature, chain_prev_hash | text, char(64) | phone-side integrity (§6.6.6) |
+| status | enum | `draft`, `submitted`, `sealed`, `flagged`, `voided` |
+| validation | json | the result of each check (pass, warn, fail) |
+| seal_hash, sealed_at | char(64), timestamp | §7 |
+| epod_file_uuid | uuid, nullable | the generated PDF |
+
+### `pod_evidence`
+| column | type | notes |
+|---|---|---|
+| attempt_uuid | uuid | |
+| proof_uuid | uuid | → the existing `proofs` row (and its file) |
+| type | enum | as above |
+| entity_uuid | uuid, nullable | for `item_scan`, the parcel or entity scanned |
+| value | json | e.g. the scanned code, ID type, OTP verification id (never the OTP itself) |
+| location, captured_at | | per piece of evidence |
+| content_hash | char(64) | SHA-256 of the file bytes or the canonical value |
+
+### `pod_otps`
+| column | type | notes |
+|---|---|---|
+| subject_type/subject_uuid | | |
+| code_hash | string | bcrypt or argon2 hash. The OTP is never stored in plain text. |
+| channel | enum | `sms`, `email`, `tracking_page` |
+| sent_to | string | masked |
+| expires_at, attempts, verified_at | | locked after 5 failed tries |
+
+## 6. Flows
+
+### 6.1 Policy resolution
+`PolicyResolver::for(Order $order, ?Waypoint $stop)` collects the active policies that match:
+1. the stop or order explicitly (`pod_required`/`pod_method` → a synthetic policy, for backward compatibility);
+2. the order config;
+3. the customer;
+4. the service area or zone of the stop;
+5. the company default.
+
+The highest priority wins. Requirements from the legacy `pod_method` are merged in with `all`. The result is cached per order and returned to the driver app inside the order payload as `pod_policy`. That way the app renders the right capture steps, even offline.
+
+### 6.2 Successful delivery (driver app)
+1. The driver arrives at the stop. The app shows the requirements checklist from `pod_policy`.
+2. `POST /v1/pod/attempts` creates a `draft` attempt. The app sends `client_attempt_id` as an idempotency key.
+3. For each requirement, the app captures evidence with `POST /v1/pod/attempts/{id}/evidence` (multipart for images, JSON for scans and OTP). Each item creates a `Proof` (using the existing storage paths `uploads/{company}/…`) and a `pod_evidence` row. The server checks it immediately (§6.4) and returns pass, warn or fail.
+4. `POST /v1/pod/attempts/{id}/submit` with the outcome `delivered`. The server re-checks the whole requirement tree, then calls Fleet-Ops `updateActivity` / `complete()` with the primary proof. The guard accepts a passing attempt whose metadata has synced (`meta_synced`), even if its photos are still uploading. The attempt is sealed (§7) once all committed media have arrived (§6.6.3).
+   - Steps 2–4 above describe a phone that is online. With no signal, the same calls are queued on the phone and sent later as one batch through `/pod/sync` (§6.6).
+5. Listeners queue the ePOD PDF render and fire `pod.attempt.sealed` and the existing `order.completed` / `waypoint.completed`.
+
+The legacy `capture-*` endpoints keep working. A legacy capture creates an implicit attempt, so older Navigator builds don't break.
+
+### 6.3 Failed or partial delivery
+- `submit` with `outcome=failed|refused|…` needs a `failure_reason_code` and at least one photo (configurable). It records the attempt and moves the stop to a configurable activity (for example `ATTEMPT_FAILED`). If `attempt_no < max_attempts`, it schedules a re-delivery. Otherwise it triggers a return-to-sender flow.
+- `partially_delivered` needs item scans. Entities that weren't scanned are marked undelivered on the order.
+
+### 6.4 Validation rules
+| Check | Rule | On failure |
+|---|---|---|
+| Geofence | `distance_from_stop_m <= geofence_radius_m + accuracy` | `warn` (flag for review) or `fail`, depending on the policy |
+| Time window | `captured_at` falls in the stop window ± grace | `warn` |
+| Clock skew | `abs(received_at - captured_at)` is under 10 min when online | `warn` |
+| OTP | matches an unexpired, unverified OTP for the subject | `fail` |
+| Item scan | the code matches an entity on the stop (`TrackingCode::matches`); coverage met | `fail` |
+| Photo | a real image, ≤ 10 MB, EXIF stripped of personal fields, not a duplicate hash on the same order | `fail` on a duplicate |
+| Signature | a non-empty stroke count or minimum ink area | `fail` |
+| Driver | the submitting user is the assigned driver | `fail` |
+
+Attempts that pass with warnings are sealed as `flagged` and appear in the console review queue.
+
+### 6.5 OTP delivery code
+- Generated when the stop becomes `en route` (listening to `WaypointActivityChanged` / `OrderDispatched`), or on demand. It's a 4–6 digit code, sent by SMS (Twilio, already supported) or email, and shown on the customer tracking page once the customer is verified.
+- The recipient reads it to the driver. The app submits `{type: "otp", code}`. The server checks it against `code_hash`.
+- The code can be resent, with a rate limit, through `POST /v1/pod/otp/{subject}/resend`.
+
+### 6.6 Poor or no connectivity
+
+Many drivers work on weak 2G/3G, in rural areas, basements, warehouses and dead zones. The design rule is: **the network is never on the critical path for finishing a stop.** The driver can always capture proof and move on. The server catches up when it can and checks everything again.
+
+**Target connectivity profile (confirmed):** mostly 3G, with frequent short dead zones, and depot Wi-Fi at the start and end of each shift. This sets the defaults below:
+
+| Decision | Value | Why |
+|---|---|---|
+| Route bundle | **Must** be downloaded on depot Wi-Fi before the first stop. Small updates (deltas) during the day over 3G. | The depot is the only place with reliable bandwidth. |
+| Photos | Compressed copies upload over 3G whenever there's signal. Full-resolution originals (if enabled) upload on depot Wi-Fi only. | About 300 KB uploads in a few seconds on 3G. Originals would eat the data plan. |
+| Retry strategy | Retry **immediately when the network comes back** (OS connectivity events), plus a backoff capped at 60 s. | Dead zones are short. A 5-minute backoff would leave stops unsynced long after signal returns. |
+| `max_offline_hours` | 12 h (one shift) | Anything older means a phone missed the depot sync. |
+| `max_media_delay_hours` | 24 h | All media should be up by the next depot visit at the latest. |
+| End-of-shift sync | The app blocks "end shift" until the queue is empty or the driver confirms they're on depot Wi-Fi and syncing. The console lists drivers with unsynced stops after shift end. | Turns depot Wi-Fi into a guaranteed catch-up point. |
+| Offline OTP check | Enabled (`offline_mode: allowed`), and offline checks are flagged for review | Drivers will often be in a dead zone at the door. |
+| SMS fallback (§6.6.9) | **Deferred** | 3G usually comes back within minutes, so the SMS cost and complexity aren't worth it. |
+
+#### 6.6.1 Offline-first capture
+- The app saves every capture to a durable local store (SQLite, plus files in app storage) **before** it tries any upload. This happens whether or not the phone is online, so there's one code path, not an "online mode" and an "offline mode".
+- Each attempt goes through these local states: `captured → queued → meta_synced → media_synced → sealed`. A local record is only removed after the server confirms it is `sealed`.
+- The queue survives the app being killed, the phone rebooting and low battery. The driver can't clear it. If the store goes over a cap (default 500 MB), the app warns the driver. It never drops evidence silently.
+- The UI never waits on the network. It shows a connectivity indicator and an "N stops waiting to sync" counter. At end of shift, the app checks for unsynced stops and tells the driver to sync at the depot.
+
+#### 6.6.2 Download everything at route start
+When the driver starts a route (ideally on depot Wi-Fi), the app downloads a **route bundle**:
+- the resolved `pod_policy` for every stop (§6.1);
+- the stop coordinates, geofence radius and time windows, so location and time checks run on the phone;
+- the expected parcel/entity codes per stop, so item scans are matched on the phone;
+- an **offline OTP bundle** per stop (§6.6.4);
+- the reason codes, recipient form fields and the failed-delivery flow.
+
+Changes made while the driver is offline (a new stop, a changed address) arrive when the phone next connects. Until then the app works from the downloaded copy, and conflicts are handled in §6.6.7.
+
+#### 6.6.3 Two-phase sync: small data first, photos later
+A delivery shouldn't wait for photos to upload over a weak signal. Sync is split in two:
+
+1. **Metadata phase** (about 2–5 KB per stop). This sends the attempt, the outcome, the recipient, the location and time, the reason codes, the scan values, the OTP result, the **signature as vector strokes** (a few KB, drawn as PNG on the server), and the **SHA-256 hash of every photo** that is still to come.
+   - The server checks it and moves the order or stop forward at once, with status `delivered — evidence pending`. On 3G this phase usually completes in under a second once signal returns.
+   - Dispatch, the customer tracking page and the "Delivered" notification update straight away.
+   - The server commits to the photo hashes now, so photos sent later can't be swapped.
+2. **Media phase.** Photos upload in the background whenever there is signal. The server checks each file against the hash it already has. When everything has arrived, the attempt is sealed (§7) and the ePOD is generated.
+   - If photos are still missing after `max_media_delay_hours` (default 24 h), the attempt is flagged for review. It isn't silently accepted.
+
+#### 6.6.4 Delivery codes (OTP) with no signal
+The server-side OTP check in §6.5 can't run offline. So:
+- At route start, the bundle holds `HMAC-SHA256(stop_key, code)` and the `stop_key` for each stop that needs an OTP. The app checks the code the recipient reads out against that value on the phone. It allows 5 tries, then locks.
+- When the attempt syncs, the app sends the code that was typed in, and the server checks it again against `pod_otps.code_hash`. If they don't match, the attempt is flagged.
+- **Trade-off.** A determined driver could brute-force a 4–6 digit code from the bundle. So an offline OTP check counts as **lower assurance**:
+  - evidence is marked `verified_offline`;
+  - a policy can require extra proof when the OTP was checked offline, using `offline_fallback` (for example signature + photo, below).
+- The customer receives the OTP by SMS, so it reaches them even when their own data connection is poor.
+
+#### 6.6.5 Keeping photos and signatures small
+- **Photos.** Compress on the phone: longest edge 1600 px, JPEG quality around 70, so roughly 200–400 KB. Remove EXIF data. Keep the original only if `keep_originals` is on, and upload originals over Wi-Fi only.
+- **Signatures.** Send them as vector strokes, not images: about 2–8 KB instead of 50–150 KB.
+- **Resumable uploads.** Split files into chunks (`POST /v1/pod/uploads` → `PATCH …/{upload_id}` with `Upload-Offset`, tus-style, 256 KB chunks). A dropped connection resumes from the last good chunk instead of starting over.
+- **Retries.** Retry as soon as the operating system reports the network is back. Otherwise use exponential backoff with jitter (2 s → 60 s cap). Send small metadata before large photos, and send older stops before newer ones.
+- **Bandwidth goal.** Under 10 KB per stop before the order can complete, and about 400 KB per photo, sent whenever possible.
+
+#### 6.6.6 Trust while records are on the phone
+Evidence can sit on the phone for hours, so the phone protects it:
+- **Device key.** When the app is linked, it creates a key pair in Android Keystore or the iOS Secure Enclave and registers the public key on the driver's device record. The phone signs each evidence record when it is captured, so records can't be edited before sync without detection.
+- **Hash chain.** Each local record includes the hash of the previous one. If a record is deleted or reordered on the phone, the server sees a gap in the chain and flags it.
+- **Trusted time.** The phone's clock can't be trusted, because drivers can change it. At every successful sync the app saves the server time together with the phone's monotonic uptime counter. It then records `trusted_time = last_server_time + elapsed_since_sync`, plus the GPS fix time when available. If these disagree with the phone's clock by more than 5 minutes, the attempt is flagged.
+- **Location without data.** GPS still works without mobile data, but it can be slow to get a first fix. The app records the fix age, accuracy and number of satellites. If there's no fix, it uses the last known location along with its age. It never blocks the delivery for lack of a location; it flags it (§6.4).
+
+#### 6.6.7 Conflicts when sync happens late
+The server has the final say. A late attempt is decided by its trusted capture time:
+
+| Situation found at sync | Rule |
+|---|---|
+| Order cancelled **after** the capture time | Accept the attempt and flag it. Dispatch decides (for example, refund or recover). |
+| Order cancelled **before** the capture time | Record the attempt as `voided` (reason `order_cancelled`). Notify the driver and dispatch. |
+| Stop reassigned to another driver | Accept the attempt from the original driver and flag it. Accept only the first delivered attempt for the stop. |
+| Address changed while offline | Run the geofence check against both the old and new address. Flag the attempt. |
+| Same `client_attempt_id` sent again | No-op. Return the stored result (idempotent). |
+| Synced after `max_offline_hours` (default 12 h) | Accept the attempt and flag it as `late_sync`. |
+
+The driver's phone shows a "sync issues" list for any attempt the server flagged or voided.
+
+#### 6.6.8 Policy settings for offline
+New fields on `pod_policies` (§5):
+- `offline_mode`: `allowed` (default), `allowed_with_fallback`, or `online_only` (only for high-value or controlled goods, where the driver must find signal);
+- `offline_fallback`: the requirement tree that applies instead when key checks ran offline;
+- `max_offline_hours`;
+- `max_media_delay_hours`.
+
+#### 6.6.9 Deferred: SMS fallback for very poor areas
+
+_Not planned for v1. With 3G coverage and depot Wi-Fi, metadata syncs within minutes of leaving a dead zone. Revisit if routes expand into areas with no data for hours at a time._
+Where data is unusable but SMS works, the app can send a **compact signed metadata message** to a Twilio inbound number (Twilio is already supported by the installer). The message holds the attempt id, outcome, time, location and a truncated signature over the record. The server records this as `meta_synced_sms`, which updates order status and customer tracking. The full metadata and photos follow when data returns. This is off by default because it adds SMS costs.
+
+#### 6.6.10 Live tracking while offline
+The app batches location points locally and backfills them when it reconnects, so the route history has no gaps. The console shows **"last synced N min ago"** for each driver, so dispatchers can tell a stopped driver from one who is out of signal.
+
+## 7. Integrity and immutability
+- When an attempt is sealed, the server builds a canonical JSON object: the attempt fields, plus a sorted list of `{type, content_hash, captured_at, location}`, plus the order and stop ids. It stores `seal_hash = SHA-256(canonical)` and an HMAC with a per-company key (`pod.seal_key`, kept in the secrets store).
+- A sealed attempt and the proofs and files it links to are **read-only**: model guards reject updates and deletes. Corrections are made by **voiding** (with a reason, the `pod void` permission, and an audit entry) and creating a new attempt.
+- `GET /v1/pod/attempts/{id}/verify` recomputes the hashes against the stored files and returns `valid` or `tampered`. The ePOD shows a QR code linking to a public verification page.
+- Optional: store the files in a bucket with object lock (S3 Object Lock or GCS retention).
+
+## 8. ePOD document
+- Rendered with `dompdf` (Fleet-Ops already includes `config/dompdf.php`) by a queued job after sealing.
+- Contents: company branding, order and tracking numbers, stop address, driver and vehicle, outcome, recipient, time and a static map of the location, the signature, photo thumbnails, scanned items, the checks that passed, `seal_hash`, and a verification QR code.
+- It's stored as a `File` linked to the attempt. It's available at:
+  - `GET /v1/pod/attempts/{id}/epod`
+  - on the public tracking page (`/tracking/{number}`), from the existing `TrackingController` proof route
+  - attached to the "Delivered" email
+- Ledger integration: attach the ePOD to the invoice line, and optionally hold invoicing until a stop has a sealed `delivered` attempt.
+
+## 9. API
+
+Public (`/v1`, API key or driver token):
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/pod/policies/resolve?order={id}&stop={id}` | The resolved requirements |
+| POST | `/pod/attempts` | Create a draft (`order`, `subject`, `client_attempt_id`) |
+| POST | `/pod/attempts/{id}/evidence` | Add evidence |
+| DELETE | `/pod/attempts/{id}/evidence/{eid}` | Only while in `draft` |
+| POST | `/pod/attempts/{id}/submit` | Outcome and recipient → validate, seal, advance the order |
+| GET | `/pod/attempts?order=…&status=…` | List |
+| GET | `/pod/attempts/{id}` / `/epod` / `/verify` | Read, PDF, integrity check |
+| POST | `/pod/otp/{subject}/send` / `resend` | OTP |
+| GET | `/pod/route-bundle?driver={id}` | The offline bundle downloaded at route start (§6.6.2) |
+| POST | `/pod/sync` | A batch of metadata-phase attempts. Idempotent by `client_attempt_id`. Returns a result per attempt. |
+| POST / PATCH / HEAD | `/pod/uploads`, `/pod/uploads/{id}` | Resumable chunked media upload (§6.6.5) |
+| POST | `/pod/sms-inbound` | Twilio webhook for the SMS fallback (§6.6.9). Twilio-signed. |
+
+Internal (`/int/v1`, console): CRUD for `pod-policies`, the review queue (`pod-attempts?status=flagged`), and approve, void and redact actions.
+
+Error contract for the guard (HTTP 422):
+
+```json
+{ "error": "proof_required",
+  "missing": [ {"type": "otp"}, {"type": "item_scan", "entities": ["entity_x1", "entity_x2"]} ] }
+```
+
+## 10. Events and webhooks
+Add these to `config/api.php` webhook events (same place as `order.completed`):
+- `pod.attempt.created`
+- `pod.attempt.sealed`
+- `pod.attempt.failed`
+- `pod.attempt.flagged`
+- `pod.attempt.voided`
+- `pod.epod.generated`
+- `pod.otp.sent`
+
+The payload is the attempt resource with evidence metadata and signed file URLs. Signed URLs are short-lived and never public by default.
+
+Socket channel `order.{public_id}`: we push `pod.attempt.sealed` so the console and tracking page update live.
+
+## 11. Console UI (Ember engine `pod`)
+- **Settings → Proof of Delivery**: a policy list and editor (a visual AND/OR builder with scope pickers, geofence radius, attempts and retention), plus company defaults and OTP channel settings.
+- **Order and stop panel** (injected into Fleet-Ops order details through an engine component hook): an attempt timeline with a map pin compared to the stop, an evidence gallery, check badges, the ePOD download, and the verify button.
+- **Review queue**: flagged attempts, with approve or void and a required comment.
+- **Reports** (registered with the Fleet-Ops report schema): first-attempt delivery rate, failure reasons, average distance from the stop, flagged rate by driver, and OTP adoption.
+
+## 12. Navigator app changes
+- Read `pod_policy` from the order payload and render a step-by-step checklist (signature pad, camera with several shots, barcode scanner with per-item ticks, OTP keypad, recipient form, failure reasons).
+- Add `captured_at`, the location, accuracy and the device id to every evidence upload.
+- Keep an offline queue, using `client_attempt_id` for idempotency.
+- Fall back to the legacy `capture-*` endpoints when the server has no PoD extension. Detect this from the absence of `pod_policy`.
+
+## 13. Security and privacy
+- **Permissions** (registered with IAM): `pod view`, `pod view-evidence` (images, signatures, personal data), `pod manage-policies`, `pod bypass`, `pod void`, `pod redact`.
+- **Personal data**: we store minimal ID data (type plus last 4 characters). EXIF GPS is replaced by the server-verified location. Faces in photos aren't processed.
+- **Retention**: a nightly scheduled job (go-crond in the `scheduler` container) redacts evidence files older than `retention_days`. It keeps the hashes and a redaction record, so integrity checks still say what existed.
+- **Access**: file URLs are temporary signed URLs. Every evidence access by console users is written to the activity log.
+- **Rate limits**: OTP verification is limited to 5 tries per code, and evidence uploads per attempt are throttled.
+
+## 14. Migration and compatibility
+- No data migration is needed. The legacy `pod_required`/`pod_method` keep working through a synthetic policy (§6.1).
+- An optional backfill command `php artisan pod:backfill-attempts` groups historic `proofs` into `delivery_attempts` with `status=submitted`. Historic attempts aren't sealed, because their integrity can't be shown.
+- Feature flag `pod.enforce` (`off` | `log` | `enforce`), the same rollout pattern as socket auth (`SOCKETCLUSTER_AUTH_MODE`). Start with `log`, check the guard decisions, then switch to `enforce`.
+
+## 15. Testing
+- **Unit**: the policy tree evaluation, resolver priority, each check, canonical hashing, and OTP hashing and expiry.
+- **Feature**: legacy capture still completes orders; an order is rejected with 422 and the `missing` list without proof; bypass needs the permission; a sealed attempt can't be changed; offline idempotent resubmit; multi-stop with per-item coverage.
+- **k6**: add evidence upload and submit to `tests/k6/api-release.js`, to watch latency.
+- **Navigator e2e**: the happy path, a failed attempt, and an offline sync.
+- **Poor-network tests** (with network throttling, for example Android emulator network profiles or `tc netem`):
+  - **primary profile:** 3G (about 750 kbps down / 250 kbps up, 200 ms RTT, 2% loss), cycled with 30 s – 10 min dead zones every few stops;
+  - stress profile: 2G (about 50 kbps, 500 ms RTT, 10–30% packet loss);
+  - end-of-shift sync on depot Wi-Fi with 100+ queued stops;
+  - airplane mode for a whole route, then sync at the depot;
+  - the app killed mid-upload, then resumed;
+  - the phone clock moved ±2 h;
+  - an order cancelled while the driver is offline;
+  - the same batch submitted twice.
+- **Pass condition**: the driver can finish every stop with no network. The order completes on the server within one metadata sync. No evidence is lost or duplicated.
+
+## 16. Delivery plan
+
+| Phase | Scope | Est. |
+|---|---|---|
+| 0 | Upstream `ActivityProofGuard` PR to Fleet-Ops (enforce existing rules on `/v1`) | 3–4 days |
+| 1 | Extension skeleton, tables, PolicyResolver, attempts and evidence API, sealing, `log` mode | 2 weeks |
+| 2 | Checks (geo, time, scan coverage), OTP, failed attempts with reasons, console order panel | 2 weeks |
+| 3 | ePOD PDF, verification page, webhooks, review queue, reports | 1.5 weeks |
+| 4 | Navigator checklist UI, offline-first store, route bundle, two-phase and resumable sync, device signing, `enforce` rollout | 3–4 weeks |
+| — | SMS metadata fallback: deferred (§6.6.9) | — |
+| 5 | Retention and redaction, Ledger hold-until-PoD, backfill | 1 week |
+
+## 17. Open questions
+1. Which PoD types matter most for your operation (for example, OTP for e-commerce, item scans for B2B pallets, ID checks for pharmacy)? This decides the order of phases 2–4.
+2. When the geofence check fails, should the attempt **block** or only **flag**? Is the default 150 m right for your areas, given GPS accuracy in dense urban or rural places?
+3. What are your legal retention requirements for signatures and photos (for example, 90 days, 1 year, 7 years)?
+4. Is the "Delivered" ePOD sent to the customer by default, or only on request?
+5. ~~What connectivity do your drivers have?~~ **Resolved:** mostly 3G with frequent dead zones, depot Wi-Fi available. Defaults are in §6.6, and the SMS fallback is deferred.
+6. Can any goods require `online_only` proof (for example cash-on-delivery, controlled medicines)?
+7. Do we contribute the extension upstream, or keep it private to this fork? Both work under AGPL-3.0, but network use requires publishing the source to your users.

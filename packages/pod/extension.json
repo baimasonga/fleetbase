@@ -1,0 +1,9 @@
+{
+    "name": "Invendis",
+    "version": "0.8.0",
+    "description": "Invendis: proof of delivery for Fleetbase, with an agricultural inputs distribution profile (programmes, farmer lists, cards, policies). Sierra Leone is the default country.",
+    "repository": "https://github.com/baimasonga/fleetbase",
+    "license": "AGPL-3.0-or-later",
+    "author": "baimasonga",
+    "api": "composer.json"
+}

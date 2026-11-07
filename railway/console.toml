@@ -1,0 +1,14 @@
+# Railway service: console (the Fleetbase web console, where administrators,
+# programme managers, supervisors and monitors work).
+# Config-as-code file: /railway/console.toml. Root directory: empty.
+# The API and socket addresses are read from this service's variables when the
+# container starts, so changing them needs a restart, not a rebuild.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "railway/console.Dockerfile"
+watchPatterns = ["console/**", "railway/console.Dockerfile", "railway/console-config.sh", "railway/console.toml"]
+
+[deploy]
+healthcheckPath = "/"
+restartPolicyType = "ALWAYS"

@@ -1,0 +1,49 @@
+{
+    "name": "fleetbase/pod-api",
+    "version": "0.8.0",
+    "description": "Invendis: proof of delivery extension for Fleetbase, with an agricultural inputs distribution profile",
+    "keywords": ["fleetbase-extension", "proof-of-delivery", "pod", "agriculture", "distribution"],
+    "license": "AGPL-3.0-or-later",
+    "require": {
+        "php": "^8.1",
+        "fleetbase/core-api": "^1.6.74",
+        "fleetbase/fleetops-api": "^0.6.75",
+        "dompdf/dompdf": "^3.1",
+        "giggsey/libphonenumber-for-php": "^8.13",
+        "milon/barcode": "^10.0",
+        "phpoffice/phpspreadsheet": "^1.28"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0",
+        "phpunit/phpunit": "^10.5",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Fleetbase\\Pod\\": "server/src/",
+            "Fleetbase\\Pod\\Seeders\\": "server/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Fleetbase\\Pod\\Tests\\": "server/tests/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Fleetbase\\Pod\\Providers\\PodServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "vendor-dir": "./server_vendor",
+        "sort-packages": true,
+        "preferred-install": "dist"
+    },
+    "scripts": {
+        "test": "phpunit --colors=always"
+    }
+}
