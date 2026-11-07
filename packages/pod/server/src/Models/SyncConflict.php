@@ -2,7 +2,7 @@
 
 namespace Fleetbase\Pod\Models;
 
-use Fleetbase\Traits\HasUuid;
+use Fleetbase\Pod\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 
 class SyncConflict extends Model

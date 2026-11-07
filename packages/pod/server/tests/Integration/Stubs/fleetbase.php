@@ -18,9 +18,21 @@ namespace Fleetbase\Traits {
             {
                 static::creating(function ($model) {
                     if (empty($model->uuid)) {
-                        $model->uuid = (string) Str::uuid();
+                        $model->uuid = static::generateUuid();
                     }
                 });
+            }
+
+            public static function generateUuid($column = 'uuid')
+            {
+                $uuid = (string) Str::uuid();
+                // Match core-api's soft-delete assumption so plain Eloquent
+                // models cannot silently pass here and fail during deployment.
+                if ((new static())->where($column, $uuid)->withTrashed()->exists()) {
+                    return static::generateUuid($column);
+                }
+
+                return $uuid;
             }
         }
     }

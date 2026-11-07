@@ -3,7 +3,7 @@
 namespace Fleetbase\Pod\Models;
 
 use Fleetbase\Pod\Support\AdminAreas\AdminArea as AdminAreaValue;
-use Fleetbase\Traits\HasUuid;
+use Fleetbase\Pod\Traits\HasUuid;
 use Illuminate\Database\Eloquent\Model;
 
 /**

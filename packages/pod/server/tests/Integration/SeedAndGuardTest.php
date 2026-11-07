@@ -9,6 +9,19 @@ use Illuminate\Support\Str;
 
 final class SeedAndGuardTest extends IntegrationTestCase
 {
+    public function testAdminAreasGenerateUuidsWithoutSoftDeletesAndKeepIntegerIds(): void
+    {
+        $area = AdminArea::create(['country' => 'SL', 'level' => 1, 'pcode' => 'SL01', 'name' => 'Eastern']);
+        $other = AdminArea::create(['country' => 'SL', 'level' => 1, 'pcode' => 'SL02', 'name' => 'Northern']);
+
+        $this->assertTrue(Str::isUuid($area->uuid));
+        $this->assertTrue(Str::isUuid($other->uuid));
+        $this->assertNotSame($area->uuid, $other->uuid);
+        $this->assertIsInt($area->id);
+        $this->assertTrue($area->getIncrementing());
+        $this->assertSame($area->uuid, $area->fresh()->uuid);
+    }
+
     public function testSeedsSierraLeoneAndIsSafeToRunAgain(): void
     {
         $this->artisan('pod:seed-admin-areas')
