@@ -66,7 +66,17 @@ The extension lives in `packages/pod` of this repository.
    php artisan pod:seed-admin-areas SL
    ```
 
-4. Create the PoD permissions and roles, then give each person a role in the console (IAM → Users):
+4. Create the super administrator. It asks for the password twice, without showing it:
+
+   ```bash
+   docker compose exec application php artisan pod:create-admin --email=<administrator email> --organisation="<your organisation>"
+   ```
+
+   The account is a Fleetbase platform administrator, owns the organisation and has its Administrator role, so it can do everything and give others their roles. The password is never taken on the command line (it would stay in the shell history). For an unattended install, set `POD_ADMIN_EMAIL` and `POD_ADMIN_PASSWORD` for that one run only, then remove them. It must be at least 12 characters and mix three of: lower case, upper case, digits, symbols.
+
+   Run it again with `--reset-password` to set a new password, or on an existing account to make it a super administrator. Don't use Fleetbase's sign-up screen as well: on a fresh install the first account to sign up there also becomes an administrator.
+
+5. Create the PoD permissions and roles, then give each person a role in the console (IAM → Users):
 
    ```bash
    php artisan fleetbase:create-permissions
@@ -74,7 +84,7 @@ The extension lives in `packages/pod` of this repository.
 
    Run it again after each PoD update. Until someone has a role they can't use PoD, except organisation administrators, who can do everything. See [Roles](#roles).
 
-5. Watch the guard log for a while in `log` mode, then set `POD_GUARD_MODE=enforce`.
+6. Watch the guard log for a while in `log` mode, then set `POD_GUARD_MODE=enforce`.
 
 ## Roles
 
