@@ -48,9 +48,14 @@ jobs:
           coverage: none
 
       - name: Install the test dependencies (no Fleetbase install needed)
+        # A throwaway vendor folder for the tests, never deployed. Fleetbase is on
+        # Laravel 10, which is out of support: every 10.x release has open advisories,
+        # and Composer refuses them by default, so they are allowed here only.
+        env:
+          COMPOSER_NO_SECURITY_BLOCKING: '1'
         run: |
           mkdir -p .pod-test && cd .pod-test
-          echo '{"minimum-stability":"stable"}' > composer.json
+          echo '{"minimum-stability":"stable","config":{"audit":{"block-insecure":false},"policy":{"advisories":{"block":false}}}}' > composer.json
           composer require --no-interaction --no-progress \
             giggsey/libphonenumber-for-php:^8.13 phpoffice/phpspreadsheet:^1.28 milon/barcode:^10.0 \
             dompdf/dompdf:^3.1 vlucas/phpdotenv:^5.6 orchestra/testbench:^8.0 phpunit/phpunit:^10.5
@@ -98,7 +103,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Config files parse, scripts are valid
         run: |
-          for f in railway/*.toml; do python3 -c "import tomllib,sys; tomllib.load(open(sys.argv[1],'rb'))" "$f" && echo "ok $f"; done
+          for f in railway.toml railway/*.toml; do python3 -c "import tomllib,sys; tomllib.load(open(sys.argv[1],'rb'))" "$f" && echo "ok $f"; done
           sh -n railway/console-config.sh
           sh -n railway/generate-secrets.sh
       - name: Console config script writes valid JSON

@@ -1,11 +1,13 @@
 # Railway service: api (Fleetbase API + Invendis, and the Invendis field app at /pod-field/)
-# In the service settings set "Config-as-code file" to /railway/api.toml.
-# Root directory: leave empty (the build needs the whole repository).
+#
+# Railway reads this file by default for any service built from this repository's
+# root, so the api needs no config path. The other services set theirs to
+# /railway/<service>.toml, which takes precedence. Root directory: leave empty.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "docker/Dockerfile"
-watchPatterns = ["api/**", "packages/pod/**", "docker/**", "Caddyfile", "railway/api.toml"]
+watchPatterns = ["api/**", "packages/pod/**", "docker/**", "Caddyfile", "railway.toml"]
 
 [deploy]
 # The start command replaces the image's ENTRYPOINT (which would fetch settings

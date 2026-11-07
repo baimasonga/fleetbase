@@ -12,7 +12,7 @@ Invendis runs on Fleetbase. On Railway it is seven services in one project, buil
 | **socket** | live updates in the console | `socket/Dockerfile` | yes, port 8000 |
 | **console** | the web console (administrators, managers, supervisors, monitors) | `railway/console.Dockerfile` | yes, port 4200 |
 
-Each service's build and start settings are in this folder (`api.toml`, `queue.toml`, ...), so Railway reads them from the repository. The variables are in [`variables.md`](variables.md).
+Each service's build and start settings are in the repository: `railway.toml` at the root for the api, and this folder for the others (`queue.toml`, `scheduler.toml`, ...). The variables are in [`variables.md`](variables.md).
 
 ## Before you start
 
@@ -33,11 +33,13 @@ Each service's build and start settings are in this folder (`api.toml`, `queue.t
 
 ## 2. Create the five services from GitHub
 
-For each row below: **Create → GitHub Repo → baimasonga/fleetbase**, then in the new service's **Settings**:
+For each row below: **Create → GitHub Repo → baimasonga/fleetbase**, then in the new service's **Settings**. Pick **baimasonga/fleetbase** exactly, not Fleetbase's original `fleetbase/fleetbase`, which doesn't contain Invendis.
+
+If a build fails within seconds saying *"Railpack failed to prepare the build"*, the service isn't reading its config: check the repository and branch, then the config-as-code path. All five services build from Dockerfiles, never with Railpack.
 
 | Name the service | Source → Branch | Source → Root directory | Config-as-code file |
 |---|---|---|---|
-| `api` | your branch | *(empty)* | `/railway/api.toml` |
+| `api` | your branch | *(empty)* | *(empty: it uses `/railway.toml`)* |
 | `queue` | your branch | *(empty)* | `/railway/queue.toml` |
 | `scheduler` | your branch | *(empty)* | `/railway/scheduler.toml` |
 | `socket` | your branch | `/socket` | `/railway/socket.toml` |
