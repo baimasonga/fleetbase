@@ -151,3 +151,104 @@ jobs:
             test ! -L vendor/fleetbase/pod-api
             echo "Invendis files are in the image (copied, not linked)"'
           docker run --rm --entrypoint php invendis-api:ci -r 'require "vendor/autoload.php"; exit(class_exists("Fleetbase\\Pod\\Providers\\PodServiceProvider") && class_exists("Fleetbase\\Pod\\Auth\\Schemas\\Pod") ? 0 : 1);'
+
+  api-starts:
+    name: API image starts and serves (as on Railway)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      mysql:
+        image: mysql:8.0-oracle
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root
+          MYSQL_DATABASE: railway
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-root"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build docker/Dockerfile
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          load: true
+          tags: invendis-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Railway's variables, with stand-in secrets
+        run: |
+          {
+            echo "APP_NAME=Invendis"
+            echo "APP_ENV=production"
+            echo "APP_DEBUG=false"
+            echo "APP_KEY=base64:$(openssl rand -base64 32)"
+            echo "LOG_CHANNEL=stderr"
+            echo "TRUSTED_PROXIES=*"
+            echo "PORT=8000"
+            echo "DATABASE_URL=mysql://root:ci-root@127.0.0.1:3306/railway"
+            echo "DB_PORT=3306"
+            echo "CACHE_URL=redis://127.0.0.1:6379"
+            echo "REDIS_URL=redis://127.0.0.1:6379"
+            echo "REDIS_PORT=6379"
+            echo "QUEUE_CONNECTION=redis"
+            echo "CACHE_DRIVER=redis"
+            echo "CACHE_PATH=/fleetbase/api/storage/framework/cache"
+            echo "APP_URL=http://localhost:8000"
+            echo "SESSION_DOMAIN=localhost"
+            echo "BROADCAST_DRIVER=log"
+            echo "REGISTRY_HOST=https://registry.fleetbase.io"
+            echo "REGISTRY_PREINSTALLED_EXTENSIONS=true"
+            echo "OSRM_HOST=https://router.project-osrm.org"
+            echo "MAIL_MAILER=log"
+            echo "POD_GUARD_MODE=log"
+            echo "POD_DEFAULT_COUNTRY=SL"
+            echo "POD_CARD_SECRET=$(openssl rand -base64 48)"
+            echo "POD_ID_HASH_KEY=$(openssl rand -base64 48)"
+            echo "POD_ADMIN_EMAIL=admin@example.org"
+            echo "POD_ADMIN_PASSWORD=Ci-Admin-Password-2027!"
+          } > railway.env
+
+      - name: Pre-deploy step (the api's preDeployCommand)
+        run: |
+          docker run --rm --network host --env-file railway.env --entrypoint sh invendis-api:ci -c "./deploy.sh && php artisan pod:seed-admin-areas SL && php artisan pod:create-admin --no-interaction"
+
+      - name: Start the server with the api's start command
+        run: |
+          docker run -d --name api --network host --env-file railway.env -v "$PWD/ci-storage:/fleetbase/api/storage/app" --entrypoint sh invendis-api:ci \
+            -c 'exec php artisan octane:frankenphp --max-requests=1000 --host=0.0.0.0 --port=${PORT:-8000}'
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 5 http://localhost:8000/health >/dev/null 2>&1 && curl -fsS --max-time 5 http://localhost:8000/pod-field/ | grep -q '<title>Invendis</title>'; then
+              echo "The API answers /health and serves the field app at /pod-field/."; exit 0
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' api)" != "true" ]; then echo "The server stopped."; break; fi
+            sleep 3
+          done
+          echo "::error::The API did not start serving"
+          exit 1
+
+      - name: Why it did not start
+        if: failure()
+        run: |
+          echo "===== server log ====="; docker logs api 2>&1 | grep -v "PHP Deprecated" | tail -80 || true
+          echo "===== booting the app the way an Octane worker does, outside FrankenPHP ====="
+          docker run --rm --network host --env-file railway.env --entrypoint php invendis-api:ci -d display_errors=1 -r '
+            require "vendor/autoload.php";
+            try {
+              (new Laravel\Octane\ApplicationFactory("/fleetbase/api"))->createApplication();
+              echo "BOOT OK\n";
+            } catch (Throwable $e) {
+              echo get_class($e), ": ", $e->getMessage(), "\n  in ", $e->getFile(), ":", $e->getLine(), "\n", $e->getTraceAsString(), "\n";
+              exit(1);
+            }' || true
