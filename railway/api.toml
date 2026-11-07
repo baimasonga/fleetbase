@@ -1,0 +1,20 @@
+# Railway service: api (Fleetbase API + Invendis, and the Invendis field app at /pod-field/)
+# In the service settings set "Config-as-code file" to /railway/api.toml.
+# Root directory: leave empty (the build needs the whole repository).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/Dockerfile"
+watchPatterns = ["api/**", "packages/pod/**", "docker/**", "Caddyfile", "railway/api.toml"]
+
+[deploy]
+# The start command replaces the image's ENTRYPOINT (which would fetch settings
+# from AWS Parameter Store), so the image runs with Railway's variables only.
+startCommand = "sh -c 'exec php artisan octane:frankenphp --max-requests=1000 --host=0.0.0.0 --port=${PORT:-8000}'"
+# Before each deploy: create the databases, migrate, seed, create the roles and
+# permissions, and load (or update) the Sierra Leone admin areas. All safe to repeat.
+preDeployCommand = ["sh -c './deploy.sh && php artisan pod:seed-admin-areas SL'"]
+healthcheckPath = "/pod-field/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

@@ -39,7 +39,9 @@ Not built yet, in the order of the delivery plan: registration photos, cold chai
 
 ## Install (own server)
 
-The extension lives in `packages/pod` of this repository.
+The extension lives in `packages/pod` of this repository. It is already required by the API (`api/composer.json`, a Composer path repository copied into `vendor`), and `docker/Dockerfile` copies it into the image, so a Docker build of this repository includes Invendis.
+
+**On Railway:** follow [`railway/README.md`](../../railway/README.md). The steps below are for your own server.
 
 1. Link it into the API with the package linker (see [`scripts/README.md`](../../scripts/README.md)), or add a Composer path repository to `api/composer.json`:
 

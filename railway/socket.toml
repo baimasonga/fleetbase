@@ -1,0 +1,12 @@
+# Railway service: socket (live updates in the console).
+# Root directory: /socket. Config-as-code file: /railway/socket.toml (an absolute
+# path: Railway doesn't look for it under the root directory).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = ["socket/**", "railway/socket.toml"]
+
+[deploy]
+healthcheckPath = "/health-check"
+restartPolicyType = "ALWAYS"

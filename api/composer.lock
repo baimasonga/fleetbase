@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d7b19395e459e1f0419a624c11cf29ba",
+    "content-hash": "b53588ce667571e3ec76d88743f51359",
     "packages": [
         {
             "name": "appstract/laravel-opcache",
@@ -2859,6 +2859,68 @@
                 "source": "https://github.com/fleetbase/ledger/tree/v0.0.13"
             },
             "time": "2026-10-14T07:30:39+00:00"
+        },
+        {
+            "name": "fleetbase/pod-api",
+            "version": "0.8.0",
+            "dist": {
+                "type": "path",
+                "url": "../packages/pod",
+                "reference": "a70903554bf1b9f7f426fd6eb665ed9d58f4f817"
+            },
+            "require": {
+                "dompdf/dompdf": "^3.1",
+                "fleetbase/core-api": "^1.6.74",
+                "fleetbase/fleetops-api": "^0.6.75",
+                "giggsey/libphonenumber-for-php": "^8.13",
+                "milon/barcode": "^10.0",
+                "php": "^8.1",
+                "phpoffice/phpspreadsheet": "^1.28"
+            },
+            "require-dev": {
+                "orchestra/testbench": "^8.0",
+                "phpunit/phpunit": "^10.5",
+                "vlucas/phpdotenv": "^5.6"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Fleetbase\\Pod\\Providers\\PodServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Fleetbase\\Pod\\": "server/src/",
+                    "Fleetbase\\Pod\\Seeders\\": "server/seeders/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Fleetbase\\Pod\\Tests\\": "server/tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "phpunit --colors=always"
+                ]
+            },
+            "license": [
+                "AGPL-3.0-or-later"
+            ],
+            "description": "Invendis: proof of delivery extension for Fleetbase, with an agricultural inputs distribution profile",
+            "keywords": [
+                "agriculture",
+                "distribution",
+                "fleetbase-extension",
+                "pod",
+                "proof-of-delivery"
+            ],
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
         },
         {
             "name": "fleetbase/registry-bridge",
@@ -20183,5 +20245,5 @@
         "php": ">=8.0 <8.3"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.9.0"
+    "plugin-api-version": "2.6.0"
 }

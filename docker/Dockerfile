@@ -122,6 +122,11 @@ RUN if [ -n "$GITHUB_AUTH_KEY" ]; then echo "{\"github-oauth\": {\"github.com\":
 # Prepare composer cache directory
 RUN mkdir -p /var/www/.cache/composer && chown -R www-data:www-data /var/www/.cache/composer
 
+# Extensions installed from this repository through Composer path repositories
+# (api/composer.json: "../packages/pod", copied into vendor, not symlinked).
+# Invendis (proof of delivery for agricultural inputs).
+COPY --chown=www-data:www-data ./packages/pod /fleetbase/packages/pod
+
 # Optimize Composer Dependency Installation
 COPY --chown=www-data:www-data ./api/composer.json ./api/composer.lock /fleetbase/api/
 
