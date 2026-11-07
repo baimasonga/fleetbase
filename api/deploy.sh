@@ -32,6 +32,11 @@ php artisan route:clear
 php artisan config:cache
 php artisan route:cache
 
+# Check what the web server's workers need at start-up (APP_KEY, APP_URL, booting
+# the app as a worker does). A worker that fails at start-up hides its error, so
+# this stops the deploy here with a readable message instead.
+php artisan pod:check-runtime
+
 # Initialize registry
 php artisan registry:init
 

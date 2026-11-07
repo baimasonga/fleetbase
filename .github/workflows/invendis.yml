@@ -238,6 +238,23 @@ jobs:
           echo "::error::The API did not start serving"
           exit 1
 
+      - name: A malformed APP_KEY breaks the workers as on Railway, and the pre-deploy check names it
+        run: |
+          docker rm -f api >/dev/null 2>&1 || true
+          sed 's/^APP_KEY=.*/APP_KEY=base64/' railway.env > bad-key.env
+          # The server alone only says "worker script has failed"...
+          docker run -d --name api-bad --network host --env-file bad-key.env -e PORT=8001 --entrypoint sh invendis-api:ci \
+            -c 'exec php artisan octane:frankenphp --max-requests=1000 --host=0.0.0.0 --port=8001'
+          sleep 20
+          docker logs api-bad 2>&1 | grep -v "PHP Deprecated" | tail -15
+          if curl -fsS --max-time 5 http://localhost:8001/health >/dev/null 2>&1; then echo "::error::the server started with a malformed APP_KEY"; exit 1; fi
+          # ...while the pre-deploy check stops the deploy and says why.
+          if docker run --rm --network host --env-file bad-key.env --entrypoint php invendis-api:ci artisan pod:check-runtime > check.txt 2>&1; then
+            cat check.txt; echo "::error::pod:check-runtime passed with a malformed APP_KEY"; exit 1
+          fi
+          cat check.txt
+          grep -q "APP_KEY is not valid" check.txt
+
       - name: Why it did not start
         if: failure()
         run: |
