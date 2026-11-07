@@ -136,8 +136,10 @@ RUN su www-data -s /bin/sh -c "composer install --no-scripts --optimize-autoload
 # Fail the build if this image's FrankenPHP is older than the installed Octane requires. Octane would
 # otherwise delete the binary on startup and every app container would exit 127.
 # See docker/scripts/assert-frankenphp-version.php.
-RUN --mount=type=bind,source=docker/scripts/assert-frankenphp-version.php,target=/tmp/assert-frankenphp-version.php \
-  php /tmp/assert-frankenphp-version.php /fleetbase/api/vendor/autoload.php
+# Copied in rather than bind-mounted: Railway's builder only supports cache mounts.
+COPY docker/scripts/assert-frankenphp-version.php /tmp/assert-frankenphp-version.php
+RUN php /tmp/assert-frankenphp-version.php /fleetbase/api/vendor/autoload.php \
+  && rm /tmp/assert-frankenphp-version.php
 
 # Setup application
 COPY --chown=www-data:www-data ./api /fleetbase/api
