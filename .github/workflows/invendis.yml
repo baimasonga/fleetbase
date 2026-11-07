@@ -13,6 +13,7 @@ on:
       - 'api/composer.lock'
       - 'docker/**'
       - 'railway/**'
+      - '.railway/**'
       - '.github/workflows/invendis.yml'
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - 'api/composer.lock'
       - 'docker/**'
       - 'railway/**'
+      - '.railway/**'
       - '.github/workflows/invendis.yml'
 
 permissions:
@@ -101,9 +103,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Config files parse, scripts are valid
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Infrastructure as Code type-checks against Railway's SDK and describes the project
         run: |
-          for f in railway.toml railway/*.toml; do python3 -c "import tomllib,sys; tomllib.load(open(sys.argv[1],'rb'))" "$f" && echo "ok $f"; done
+          npm ci --prefix .railway --no-audit --no-fund
+          .railway/node_modules/.bin/tsc -p .railway --noEmit false --outDir .railway/.out
+          node .railway/check.mjs
+      - name: Scripts are valid
+        run: |
           sh -n railway/console-config.sh
           sh -n railway/generate-secrets.sh
       - name: Console config script writes valid JSON
