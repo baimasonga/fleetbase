@@ -4,6 +4,7 @@ namespace Fleetbase\Pod\Providers;
 
 use Fleetbase\Pod\Auth\FleetbaseGate;
 use Fleetbase\Pod\Auth\Gate;
+use Fleetbase\Pod\Console\Commands\CheckRuntime;
 use Fleetbase\Pod\Console\Commands\CreateAdmin;
 use Fleetbase\Pod\Console\Commands\SeedAdminAreas;
 use Fleetbase\Pod\Http\Middleware\EnforceProofOfDelivery;
@@ -43,7 +44,7 @@ class PodServiceProvider extends ServiceProvider
         $this->loadRoutesFrom(__DIR__ . '/../routes.php');
 
         if ($this->app->runningInConsole()) {
-            $this->commands([SeedAdminAreas::class, CreateAdmin::class]);
+            $this->commands([SeedAdminAreas::class, CreateAdmin::class, CheckRuntime::class]);
         }
 
         $this->attachProofGuard();
