@@ -46,4 +46,33 @@ Route::prefix(config('pod.api.internal_prefix', 'int') . '/v1/pod')
 
         $router->post('programmes/{id}/cards/pdf', 'CardController@pdf');
         $router->post('programmes/{id}/cards/check', 'CardController@check');
+
+        $router->get('sites', 'SiteController@index');
+        $router->post('sites', 'SiteController@store');
+        $router->get('sites/{id}', 'SiteController@show');
+        $router->post('sites/{id}/stock/receive', 'SiteController@receive');
+
+        $router->get('programmes/{id}/legs', 'TransportLegController@index');
+        $router->post('programmes/{id}/legs', 'TransportLegController@store');
+        $router->get('legs/{id}', 'TransportLegController@show');
+        $router->post('legs/{id}/load', 'TransportLegController@load');
+        $router->post('legs/{id}/depart', 'TransportLegController@depart');
+        $router->post('legs/{id}/arrive', 'TransportLegController@arrive');
+        $router->post('legs/{id}/receive', 'TransportLegController@receive');
+        $router->post('legs/{id}/close', 'TransportLegController@close');
+        $router->post('legs/{id}/cancel', 'TransportLegController@cancel');
+        $router->post('discrepancies/{id}/resolve', 'TransportLegController@resolveDiscrepancy');
+
+        $router->get('programmes/{id}/events', 'DistributionEventController@index');
+        $router->post('programmes/{id}/events', 'DistributionEventController@store');
+        $router->get('events/{id}', 'DistributionEventController@show');
+        $router->post('events/{id}/assign', 'DistributionEventController@assign');
+        $router->post('events/{id}/open', 'DistributionEventController@open');
+        $router->get('events/{id}/handovers', 'DistributionEventController@handovers');
+        $router->post('events/{id}/handovers', 'DistributionEventController@handover');
+        $router->post('events/{id}/attempts', 'DistributionEventController@failAttempt');
+        $router->post('events/{id}/reassign', 'DistributionEventController@reassign');
+        $router->post('events/{id}/discrepancies', 'DistributionEventController@discrepancy');
+        $router->post('events/{id}/close', 'DistributionEventController@close');
+        $router->get('events/{id}/report', 'DistributionEventController@report');
     });

@@ -14,6 +14,21 @@ abstract class IntegrationTestCase extends TestCase
     public const COMPANY = '11111111-1111-1111-1111-111111111111';
     public const OTHER_COMPANY = '22222222-2222-2222-2222-222222222222';
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Fail loudly when code writes a field the model doesn't allow, instead of
+        // Laravel silently dropping it (this hid a bug in attempt counting).
+        \Illuminate\Database\Eloquent\Model::preventSilentlyDiscardingAttributes();
+    }
+
+    protected function tearDown(): void
+    {
+        \Illuminate\Database\Eloquent\Model::preventSilentlyDiscardingAttributes(false);
+        parent::tearDown();
+    }
+
     protected function getPackageProviders($app): array
     {
         return [PodServiceProvider::class];
@@ -60,9 +75,12 @@ abstract class IntegrationTestCase extends TestCase
         $router->middleware('fleetbase.api')->match(['post', 'patch'], 'v1/orders/{id}/update-activity', 'Fleetbase\FleetOps\Http\Controllers\Api\v1\OrderController@updateActivity');
     }
 
-    protected function asCompany(string $company = self::COMPANY): static
+    public const STOREKEEPER = '33333333-3333-3333-3333-333333333333';
+    public const RECEIVER    = '44444444-4444-4444-4444-444444444444';
+
+    protected function asCompany(string $company = self::COMPANY, string $user = self::STOREKEEPER): static
     {
-        return $this->withHeaders(['X-Test-Company' => $company, 'X-Test-User' => '33333333-3333-3333-3333-333333333333', 'Accept' => 'application/json']);
+        return $this->withHeaders(['X-Test-Company' => $company, 'X-Test-User' => $user, 'Accept' => 'application/json']);
     }
 }
 

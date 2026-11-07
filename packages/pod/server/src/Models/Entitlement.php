@@ -19,13 +19,14 @@ class Entitlement extends Model
     public const CANCELLED           = 'cancelled';
 
     protected $fillable = [
-        'company_uuid', 'programme_uuid', 'beneficiary_uuid', 'sku', 'quantity', 'unit', 'collected_quantity',
+        'company_uuid', 'programme_uuid', 'beneficiary_uuid', 'sku', 'quantity', 'unit', 'collected_quantity', 'attempts',
         'status', 'delivery_model', 'distribution_event_uuid', 'route_order_uuid', 'rule_index', 'cancel_reason',
     ];
 
     protected $casts = [
         'quantity'           => 'float',
         'collected_quantity' => 'float',
+        'attempts'           => 'integer',
         'rule_index'         => 'integer',
     ];
 

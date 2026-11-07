@@ -8,7 +8,6 @@ use Fleetbase\Pod\Support\AdminAreas\AdminAreaCsvReader;
 use Fleetbase\Pod\Support\Countries\CountryProfiles;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 /**
  * Loads a country's official admin areas from the package seed file (or a
@@ -62,7 +61,7 @@ class SeedAdminAreas extends Command
                 if (!$current) {
                     $added++;
                     if (!$this->option('dry-run')) {
-                        AdminArea::create($values + ['country' => $country->code, 'pcode' => $area->pcode, 'uuid' => (string) Str::uuid()]);
+                        AdminArea::create($values + ['country' => $country->code, 'pcode' => $area->pcode]);
                     }
                     continue;
                 }
