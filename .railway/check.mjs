@@ -24,6 +24,12 @@ for (const s of services) {
   if (s.build?.builder !== 'DOCKERFILE') problems.push(`${s.name}: not built from a Dockerfile (Railpack can't build this repository)`);
   const dockerfile = join(root, s.source?.rootDirectory || '', s.build?.dockerfilePath || '');
   if (!existsSync(dockerfile)) problems.push(`${s.name}: ${dockerfile} does not exist`);
+  // Railway's builder rejects RUN --mount except type=cache ("other mount types are not supported").
+  else for (const [i, line] of readFileSync(dockerfile, 'utf8').split('\n').entries()) {
+    for (const m of line.matchAll(/--mount=([^\s\\]+)/g)) {
+      if (!/(^|,)type=cache(,|$)/.test(m[1])) problems.push(`${s.name}: ${s.build?.dockerfilePath}:${i + 1} uses --mount=${m[1]}, which Railway can't build`);
+    }
+  }
   for (const [key, value] of Object.entries(s.variables || {})) {
     if (value?.type === 'literal' && /secret|password|key/i.test(key) && value.value) problems.push(`${s.name}: ${key} has a literal value; secrets must be shared variables`);
   }
