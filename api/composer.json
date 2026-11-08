@@ -66,9 +66,6 @@
             "exclude": [
                 "fleetbase/core-api",
                 "fleetbase/fleetops-api",
-                "fleetbase/storefront-api",
-                "fleetbase/ledger-api",
-                "fleetbase/customer-portal-api",
                 "fleetbase/ai",
                 "fleetbase/valhalla-api",
                 "fleetbase/vroom-api"
