@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b53588ce667571e3ec76d88743f51359",
+    "content-hash": "464fe27bbebf0ed1346ba92b1e2f552b",
     "packages": [
         {
             "name": "appstract/laravel-opcache",
@@ -2555,75 +2555,6 @@
             "time": "2025-07-10T14:06:48+00:00"
         },
         {
-            "name": "fleetbase/customer-portal-api",
-            "version": "0.0.16",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/fleetbase/customer-portal.git",
-                "reference": "f153923f1f925665cc5c2433e296eabd5756582b"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/fleetbase/customer-portal/zipball/f153923f1f925665cc5c2433e296eabd5756582b",
-                "reference": "f153923f1f925665cc5c2433e296eabd5756582b",
-                "shasum": ""
-            },
-            "require": {
-                "fleetbase/core-api": ">=1.6.65",
-                "fleetbase/fleetops-api": "*",
-                "fleetbase/ledger-api": "*",
-                "php": "^8.0",
-                "php-http/guzzle7-adapter": "^1.0",
-                "psr/http-factory-implementation": "*"
-            },
-            "require-dev": {
-                "friendsofphp/php-cs-fixer": "^3.34.1",
-                "nunomaduro/collision": "^5.11.0|^6.4.0",
-                "pestphp/pest": "^1.22.6",
-                "phpstan/phpstan": "^1.10.38",
-                "symfony/var-dumper": "^5.4.29"
-            },
-            "type": "library",
-            "extra": {
-                "laravel": {
-                    "providers": [
-                        "Fleetbase\\CustomerPortal\\Providers\\CustomerPortalServiceProvider"
-                    ]
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Fleetbase\\CustomerPortal\\": "server/src/",
-                    "Fleetbase\\CustomerPortal\\Seeds\\": "server/seeds/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "AGPL-3.0-or-later"
-            ],
-            "authors": [
-                {
-                    "name": "Fleetbase Pte Ltd.",
-                    "email": "hello@fleetbase.io"
-                }
-            ],
-            "description": "Extendable Customer Portal for Fleetbase",
-            "keywords": [
-                "Customer portal",
-                "Customer support",
-                "customer",
-                "customer management",
-                "customer tracking",
-                "fleetbase",
-                "fleetbase-extension"
-            ],
-            "support": {
-                "issues": "https://github.com/fleetbase/customer-portal/issues",
-                "source": "https://github.com/fleetbase/customer-portal/tree/v0.0.16"
-            },
-            "time": "2026-10-14T07:30:17+00:00"
-        },
-        {
             "name": "fleetbase/fleetops-api",
             "version": "0.6.75",
             "source": {
@@ -2783,84 +2714,6 @@
             "time": "2026-10-03T06:22:15+00:00"
         },
         {
-            "name": "fleetbase/ledger-api",
-            "version": "0.0.13",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/fleetbase/ledger.git",
-                "reference": "e93eadc2d8b6a67a241b63ec30c21e6003c66663"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/fleetbase/ledger/zipball/e93eadc2d8b6a67a241b63ec30c21e6003c66663",
-                "reference": "e93eadc2d8b6a67a241b63ec30c21e6003c66663",
-                "shasum": ""
-            },
-            "require": {
-                "fleetbase/core-api": ">=1.6.65",
-                "fleetbase/fleetops-api": "*",
-                "guzzlehttp/guzzle": "^7.0",
-                "php": "^8.0",
-                "php-http/guzzle7-adapter": "^1.0",
-                "psr/http-factory-implementation": "*",
-                "stripe/stripe-php": "^17.0"
-            },
-            "require-dev": {
-                "friendsofphp/php-cs-fixer": "^3.34.1",
-                "nunomaduro/collision": "^5.11.0|^6.4.0",
-                "pestphp/pest": "^1.22.6",
-                "phpstan/phpstan": "^1.10.38",
-                "symfony/var-dumper": "^5.4.29"
-            },
-            "type": "library",
-            "extra": {
-                "laravel": {
-                    "providers": [
-                        "Fleetbase\\Ledger\\Providers\\LedgerServiceProvider"
-                    ]
-                },
-                "fleetbase": {
-                    "sandbox-migrations": false
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Fleetbase\\Ledger\\": "server/src/",
-                    "Fleetbase\\Ledger\\Seeders\\": "server/seeders/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "AGPL-3.0-or-later"
-            ],
-            "authors": [
-                {
-                    "name": "Fleetbase Pte Ltd.",
-                    "email": "hello@fleetbase.io"
-                },
-                {
-                    "name": "Ronald A. Richardson",
-                    "email": "ron@fleetbase.io"
-                }
-            ],
-            "description": "Accounting & Invoicing Extension for Fleetbase",
-            "keywords": [
-                "Accounting",
-                "accounting system",
-                "finance management api",
-                "fleetbase",
-                "fleetbase-extension",
-                "invoicing",
-                "payroll",
-                "settlements"
-            ],
-            "support": {
-                "issues": "https://github.com/fleetbase/ledger/issues",
-                "source": "https://github.com/fleetbase/ledger/tree/v0.0.13"
-            },
-            "time": "2026-10-14T07:30:39+00:00"
-        },
-        {
             "name": "fleetbase/pod-api",
             "version": "0.8.0",
             "dist": {
@@ -3004,90 +2857,6 @@
                 "source": "https://github.com/fleetbase/registry-bridge/tree/v0.1.11"
             },
             "time": "2026-10-16T08:11:31+00:00"
-        },
-        {
-            "name": "fleetbase/storefront-api",
-            "version": "0.4.31",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/fleetbase/storefront.git",
-                "reference": "2a5dd325b4d2777f0b644da53cf5c902a8e7ffc2"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/fleetbase/storefront/zipball/2a5dd325b4d2777f0b644da53cf5c902a8e7ffc2",
-                "reference": "2a5dd325b4d2777f0b644da53cf5c902a8e7ffc2",
-                "shasum": ""
-            },
-            "require": {
-                "fleetbase/core-api": "^1.6.74",
-                "fleetbase/fleetops-api": "*",
-                "geocoder-php/google-maps-places-provider": "^1.4",
-                "laravel-notification-channels/apn": "^5.0",
-                "laravel-notification-channels/fcm": "^4.1",
-                "laravel-notification-channels/twilio": "^3.3",
-                "milon/barcode": "^10.0",
-                "php": "^8.0",
-                "php-http/guzzle7-adapter": "^1.0",
-                "psr/http-factory-implementation": "*",
-                "stripe/stripe-php": "^17.0",
-                "toin0u/geocoder-laravel": "^4.4"
-            },
-            "require-dev": {
-                "friendsofphp/php-cs-fixer": "^3.34.1",
-                "illuminate/validation": "^10.0",
-                "nunomaduro/collision": "^7.0",
-                "pestphp/pest": "^2.33.2",
-                "phpstan/phpstan": "^1.10.38",
-                "symfony/var-dumper": "^5.4.29"
-            },
-            "type": "library",
-            "extra": {
-                "laravel": {
-                    "providers": [
-                        "Fleetbase\\Storefront\\Providers\\StorefrontServiceProvider",
-                        "Fleetbase\\Storefront\\Providers\\EventServiceProvider"
-                    ]
-                },
-                "fleetbase": {
-                    "order-config": "Fleetbase\\Storefront\\Support\\OrderConfig",
-                    "create-database": "storefront",
-                    "sandbox-migrations": false
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Fleetbase\\Storefront\\": "server/src/",
-                    "Fleetbase\\Storefront\\Seeders\\": "server/seeders/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "AGPL-3.0-or-later"
-            ],
-            "authors": [
-                {
-                    "name": "Fleetbase Pte Ltd.",
-                    "email": "hello@fleetbase.io"
-                },
-                {
-                    "name": "Ronald A. Richardson",
-                    "email": "ron@fleetbase.io"
-                }
-            ],
-            "description": "Headless Commerce & Marketplace Extension for Fleetbase",
-            "keywords": [
-                "e-commerce",
-                "fleetbase-extension",
-                "headless commerce",
-                "marketplace",
-                "storefront"
-            ],
-            "support": {
-                "issues": "https://github.com/fleetbase/storefront/issues",
-                "source": "https://github.com/fleetbase/storefront/tree/v0.4.31"
-            },
-            "time": "2026-11-02T11:15:24+00:00"
         },
         {
             "name": "fleetbase/twilio",
@@ -17345,12 +17114,12 @@
             "version": "v5.7.0",
             "source": {
                 "type": "git",
-                "url": "https://github.com/vlucas/phpdotenv.git",
+                "url": "https://github.com/phpdotenv/phpdotenv.git",
                 "reference": "301c07936b16d88628b126b01d082ba153cf4c40"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/vlucas/phpdotenv/zipball/301c07936b16d88628b126b01d082ba153cf4c40",
+                "url": "https://api.github.com/repos/phpdotenv/phpdotenv/zipball/301c07936b16d88628b126b01d082ba153cf4c40",
                 "reference": "301c07936b16d88628b126b01d082ba153cf4c40",
                 "shasum": ""
             },

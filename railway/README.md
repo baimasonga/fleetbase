@@ -177,6 +177,7 @@ Changes to the infrastructure itself (a new service or variable) go into `.railw
 
 ## Good to know
 
+- **What's installed.** Fleet-Ops (orders, drivers, vehicles, routes), IAM (users and roles), Invendis, and the developer and routing tools. Fleetbase's shop (Storefront), finance (Ledger: invoices, wallets, payments) and customer portal (which needs Ledger) are left out: they're removed from `api/composer.json` and `console/package.json`. Their database tables, if an earlier deploy created them, stay but are unused.
 - **Backups.** Turn on MySQL backups in Railway (Database → Backups), and back up the api volume too: it holds the proof photos and signatures. Keep the shared secrets in a password manager.
 - **Uploads on a volume** suit the pilot. A Railway volume attaches to one service, here the api, which handles every upload and download. For larger programmes, move files to S3-compatible storage (`FILESYSTEM_DRIVER=s3` with the `AWS_*` variables) so they don't depend on one service's disk.
 - **The console's API address** is read when the console container starts (`railway/console-config.sh`). After changing a domain, restart the console; there's no need to rebuild it.
