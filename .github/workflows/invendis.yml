@@ -149,7 +149,11 @@ jobs:
             test -f vendor/fleetbase/pod-api/field-app/index.html
             test -f vendor/fleetbase/pod-api/server/data/seed/sierra-leone/admin-areas.csv
             test ! -L vendor/fleetbase/pod-api
-            echo "Invendis files are in the image (copied, not linked)"'
+            echo "Invendis files are in the image (copied, not linked)"
+            for m in storefront-api ledger-api customer-portal-api; do
+              if [ -e "vendor/fleetbase/$m" ]; then echo "fleetbase/$m should not be installed"; exit 1; fi
+            done
+            echo "No storefront, ledger or customer portal"'
           docker run --rm --entrypoint php invendis-api:ci -r 'require "vendor/autoload.php"; exit(class_exists("Fleetbase\\Pod\\Providers\\PodServiceProvider") && class_exists("Fleetbase\\Pod\\Auth\\Schemas\\Pod") ? 0 : 1);'
 
   api-starts:
